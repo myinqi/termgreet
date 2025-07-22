@@ -17,8 +17,10 @@ prefer_kitty_graphics = true  # true = Kitty Protocol bevorzugt, false = viuer e
 padding = 2
 
 [display.image_size]
-width = 40
-height = 25
+width = 35
+height = 15
+cell_width = 17     # Pixel pro Terminal-Zeichen (Breite) - für Ghostty/Kitty evtl. 8-12
+cell_height = 24    # Pixel pro Terminal-Zeichen (Höhe) - für Ghostty/Kitty evtl. 16-24
 
 [modules]
 os = true

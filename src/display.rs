@@ -88,7 +88,9 @@ impl Display {
         
         // Try Kitty Graphics Protocol if preferred and supported
         if self.config.display.prefer_kitty_graphics && self.kitty_graphics.supports_kitty {
-            match self.kitty_graphics.render_image(image_path, width, height) {
+            let cell_width = self.config.display.image_size.cell_width;
+            let cell_height = self.config.display.image_size.cell_height;
+            match self.kitty_graphics.render_image(image_path, width, height, cell_width, cell_height) {
                 Ok(_) => {
                     return Ok(());
                 }
@@ -99,11 +101,19 @@ impl Display {
         }
         
         // Fallback to viuer for terminals that don't support Kitty Graphics Protocol
+        // Apply cell dimensions scaling for consistent behavior
+        let cell_width = self.config.display.image_size.cell_width;
+        let cell_height = self.config.display.image_size.cell_height;
+        
+        // Calculate effective dimensions based on cell size (similar to Kitty Graphics logic)
+        let effective_width = if cell_width > 20 { width / 2 } else { width };
+        let effective_height = if cell_height < 15 { height / 2 } else { height };
+        
         let viuer_config = ViuerConfig {
             transparent: true,
             absolute_offset: false,
-            width: Some(width),
-            height: Some(height),
+            width: Some(effective_width),
+            height: Some(effective_height),
             use_kitty: true,  // viuer's own kitty support (different from our implementation)
             use_iterm: true,  // Enable iTerm2 graphics protocol
             truecolor: true,  // Use 24-bit colors for better color accuracy

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use image::GenericImageView;
 use std::env;
 use std::io::Write;
 use std::path::Path;
@@ -85,7 +86,7 @@ impl KittyGraphics {
     }
 
     /// Render image using Kitty Graphics Protocol (Standard Mode with pixel data)
-    pub fn render_image_standard(&self, image_path: &Path, width: u32, height: u32) -> Result<()> {
+    pub fn render_image_standard(&self, image_path: &Path, width: u32, height: u32, cell_width: u32, cell_height: u32) -> Result<()> {
         if !self.supports_kitty {
             return Err(anyhow::anyhow!("Terminal doesn't support Kitty Graphics Protocol"));
         }
@@ -94,15 +95,30 @@ impl KittyGraphics {
         let img = image::open(image_path)
             .with_context(|| format!("Failed to open image: {}", image_path.display()))?;
 
-        // Calculate pixel dimensions based on terminal cell size
-        // Assuming average terminal cell is ~8x16 pixels (can be refined)
-        let pixel_width = width * 8;
-        let pixel_height = height * 16;
+        // Get original image dimensions
+        let (orig_width, orig_height) = img.dimensions();
+        let aspect_ratio = orig_width as f32 / orig_height as f32;
+        
+        // Calculate target pixel dimensions while preserving aspect ratio
+        // Use configurable cell dimensions from user config
+        
+        let target_pixel_width = width * cell_width;
+        let target_pixel_height = height * cell_height;
+        let target_aspect_ratio = target_pixel_width as f32 / target_pixel_height as f32;
+        
+        // Adjust dimensions to preserve original aspect ratio
+        let (final_width, final_height) = if aspect_ratio > target_aspect_ratio {
+            // Image is wider than target - fit to width
+            (target_pixel_width, (target_pixel_width as f32 / aspect_ratio) as u32)
+        } else {
+            // Image is taller than target - fit to height  
+            ((target_pixel_height as f32 * aspect_ratio) as u32, target_pixel_height)
+        };
 
-        // Resize image to exact pixel dimensions
-        let resized = img.resize_exact(
-            pixel_width,
-            pixel_height,
+        // Resize image preserving aspect ratio
+        let resized = img.resize(
+            final_width,
+            final_height,
             image::imageops::FilterType::Lanczos3,
         );
 
@@ -133,7 +149,7 @@ impl KittyGraphics {
                 write!(
                     &mut output,
                     "\x1b_Ga=T,f=32,s={},v={},c={},r={}",
-                    pixel_width, pixel_height, width, height
+                    final_width, final_height, width, height
                 )?;
                 
                 if chunks.len() > 1 {
@@ -167,7 +183,7 @@ impl KittyGraphics {
     }
 
     /// Try to render image with best available method
-    pub fn render_image(&self, image_path: &Path, width: u32, height: u32) -> Result<()> {
+    pub fn render_image(&self, image_path: &Path, width: u32, height: u32, cell_width: u32, cell_height: u32) -> Result<()> {
         if !self.supports_kitty {
             return Err(anyhow::anyhow!("Terminal doesn't support Kitty Graphics Protocol"));
         }
@@ -178,7 +194,7 @@ impl KittyGraphics {
         }
 
         // Fallback to Standard Mode
-        self.render_image_standard(image_path, width, height)
+        self.render_image_standard(image_path, width, height, cell_width, cell_height)
     }
 
 

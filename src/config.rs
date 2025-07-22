@@ -38,6 +38,8 @@ pub struct DisplayConfig {
 pub struct ImageSize {
     pub width: u32,
     pub height: u32,
+    pub cell_width: u32,  // Pixel pro Terminal-Zeichen (Breite)
+    pub cell_height: u32, // Pixel pro Terminal-Zeichen (Höhe)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -88,6 +90,8 @@ impl Default for Config {
                 image_size: ImageSize {
                     width: 40,
                     height: 20,
+                    cell_width: 10,  // Standard-Schätzung für moderne Terminals
+                    cell_height: 20, // Kann per config angepasst werden
                 },
                 prefer_kitty_graphics: true,
                 padding: 2,
