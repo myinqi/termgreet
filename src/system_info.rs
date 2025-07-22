@@ -17,38 +17,42 @@ impl SystemInfo {
 
         // OS Information
         data.insert("OS".to_string(), Self::get_os_info());
-        data.insert("Kernel".to_string(), Self::get_kernel_version());
-        data.insert("Uptime".to_string(), Self::format_uptime(System::uptime()));
+        data.insert("KERNEL".to_string(), Self::get_kernel_version());
+        data.insert("UPTIME".to_string(), Self::format_uptime(System::uptime()));
 
         // Desktop Environment / Window Manager
         data.insert("DE".to_string(), Self::get_desktop_environment());
         data.insert("WM".to_string(), Self::get_window_manager());
 
         // Shell
-        data.insert("Shell".to_string(), Self::get_shell());
-        data.insert("Terminal".to_string(), Self::get_terminal());
+        data.insert("SHELL".to_string(), Self::get_shell());
+        data.insert("TERMINAL".to_string(), Self::get_terminal());
 
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
         data.insert("GPU".to_string(), Self::get_gpu_info());
-        data.insert("Memory".to_string(), Self::get_memory_info(&sys));
-        data.insert("Disk".to_string(), Self::get_disk_info(&sys));
+        data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
+        data.insert("DISK".to_string(), Self::get_disk_info(&sys));
 
         // Display Information
-        data.insert("Resolution".to_string(), Self::get_resolution());
+        data.insert("RESOLUTION".to_string(), Self::get_resolution());
+
+        // Additional modules that might be missing
+        data.insert("THEME".to_string(), Self::get_theme());
+        data.insert("ICONS".to_string(), Self::get_icons());
 
         // Battery (if available)
         if let Some(battery) = Self::get_battery_info() {
-            data.insert("Battery".to_string(), battery);
+            data.insert("BATTERY".to_string(), battery);
         }
 
         // Package count (if available)
         if let Some(packages) = Self::get_package_count() {
-            data.insert("Packages".to_string(), packages);
+            data.insert("PACKAGES".to_string(), packages);
         }
 
         // Locale
-        data.insert("Locale".to_string(), Self::get_locale());
+        data.insert("LOCALE".to_string(), Self::get_locale());
 
         Self { data }
     }
@@ -365,6 +369,58 @@ impl SystemInfo {
         env::var("LANG")
             .or_else(|_| env::var("LC_ALL"))
             .unwrap_or_else(|_| "Unknown".to_string())
+    }
+
+    fn get_theme() -> String {
+        // Try to get GTK theme
+        if let Some(gtk_theme) = Self::run_command("gsettings", &["get", "org.gnome.desktop.interface", "gtk-theme"]) {
+            let theme = gtk_theme.trim().trim_matches('\'').trim_matches('"');
+            if !theme.is_empty() && theme != "Unknown" {
+                return theme.to_string();
+            }
+        }
+        
+        // Try to get KDE theme
+        if let Ok(kde_config) = fs::read_to_string(format!(
+            "{}/.config/kdeglobals", 
+            env::var("HOME").unwrap_or_default()
+        )) {
+            for line in kde_config.lines() {
+                if line.starts_with("ColorScheme=") {
+                    if let Some(theme) = line.split('=').nth(1) {
+                        return theme.to_string();
+                    }
+                }
+            }
+        }
+        
+        "Unknown".to_string()
+    }
+
+    fn get_icons() -> String {
+        // Try to get GTK icon theme
+        if let Some(icon_theme) = Self::run_command("gsettings", &["get", "org.gnome.desktop.interface", "icon-theme"]) {
+            let theme = icon_theme.trim().trim_matches('\'').trim_matches('"');
+            if !theme.is_empty() && theme != "Unknown" {
+                return theme.to_string();
+            }
+        }
+        
+        // Try to get KDE icon theme
+        if let Ok(kde_config) = fs::read_to_string(format!(
+            "{}/.config/kdeglobals", 
+            env::var("HOME").unwrap_or_default()
+        )) {
+            for line in kde_config.lines() {
+                if line.starts_with("Theme=") {
+                    if let Some(theme) = line.split('=').nth(1) {
+                        return theme.to_string();
+                    }
+                }
+            }
+        }
+        
+        "Unknown".to_string()
     }
 
     fn run_command(cmd: &str, args: &[&str]) -> Option<String> {

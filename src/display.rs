@@ -28,25 +28,18 @@ impl Display {
         // Prepare system info lines
         let info_lines = self.prepare_system_info_lines(system_info);
         
-        // Handle image display or ASCII art
+        // Check if we should display a PNG image with special layout
         if self.show_images && self.config.display.show_image {
             if let Some(ref image_path) = self.config.display.image_path {
                 if image_path.exists() {
-                    match self.render_image_to_terminal(image_path) {
-                        Ok(()) => {
-                            // Image rendered successfully, now show info alongside
-                            self.show_info_after_image(&info_lines);
-                            return Ok(());
-                        }
-                        Err(_) => {
-                            // Fall through to ASCII art
-                        }
-                    }
+                    // Use special image layout that renders image and info side by side
+                    self.show_image_with_side_info(image_path, &info_lines)?;
+                    return Ok(());
                 }
             }
         }
         
-        // Show ASCII art with info in two columns
+        // Use ASCII art with standard two-column layout
         let art_lines = if let Some(ref ascii_art) = self.config.display.ascii_art {
             ascii_art.lines().map(|s| s.to_string()).collect()
         } else {
@@ -98,6 +91,9 @@ impl Display {
             absolute_offset: false,
             width: Some(self.config.display.image_size.width),
             height: Some(self.config.display.image_size.height),
+            use_kitty: true,  // Enable Kitty graphics protocol for better quality
+            use_iterm: true,  // Enable iTerm2 graphics protocol
+            truecolor: true,  // Use 24-bit colors for better color accuracy
             ..Default::default()
         };
 
@@ -106,20 +102,48 @@ impl Display {
             .map_err(|e| anyhow::anyhow!("Failed to display image: {}", e))
     }
     
-    fn show_info_after_image(&self, info_lines: &[String]) {
-        // Add some spacing after image
-        println!();
+    fn show_image_with_side_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
+        // This is the tricky part: we need to render the image and position text beside it
+        // Terminal image rendering makes this challenging, but we'll try a hybrid approach
         
-        // Display system info in a simple list format after the image
-        for line in info_lines {
-            println!("{}", line);
+        let _image_height = self.config.display.image_size.height as usize;
+        let _image_width = self.config.display.image_size.width as usize;
+        
+        // First, try to render the image
+        match self.render_image_to_terminal(image_path) {
+            Ok(_) => {
+                // Image rendered successfully
+                // Now we need to position the cursor back up to add text beside it
+                // This is a limitation of terminal graphics - we'll show info below for now
+                // but with better formatting
+                
+                println!(); // Add spacing after image
+                
+                // Show system info in a clean single column below the image
+                for (i, line) in info_lines.iter().enumerate() {
+                    println!("[{}] >{}<", i, line);
+                }
+            }
+            Err(_) => {
+                // Failed to render image, fall back to ASCII art layout
+                let art_lines = if let Some(ref ascii_art) = self.config.display.ascii_art {
+                    ascii_art.lines().map(|s| s.to_string()).collect()
+                } else {
+                    self.get_default_ascii_lines()
+                };
+                self.show_two_column_layout(&art_lines, info_lines);
+            }
         }
         
         // Add padding
         for _ in 0..self.config.display.padding {
             println!();
         }
+        
+        Ok(())
     }
+    
+
     
     fn get_default_ascii_lines(&self) -> Vec<String> {
         let ascii_art = r#"╭─────────────────────╮
@@ -161,15 +185,20 @@ impl Display {
 
         for (key, display_name, enabled) in module_order {
             if enabled {
-                if let Some(value) = system_info.data.get(&key.to_uppercase()) {
-                    let line = format!(
-                        "{}{}{}",
-                        self.apply_color(display_name, &colors.title),
-                        self.apply_color(separator, &colors.separator),
-                        self.apply_color(value, &colors.info)
-                    );
-                    lines.push(line);
-                }
+                let lookup_key = key.to_uppercase();
+                if let Some(value) = system_info.data.get(&lookup_key) {
+    let trimmed_value = value.trim();
+    // Only add non-empty, non-Unknown values
+    if !trimmed_value.is_empty() && trimmed_value != "Unknown" {
+        let line = format!(
+            "{}{}{}",
+            self.apply_color(display_name, &colors.title),
+            self.apply_color(separator, &colors.separator),
+            self.apply_color(trimmed_value, &colors.info)
+        );
+        lines.push(line);
+    }
+}
             }
         }
         
@@ -178,7 +207,7 @@ impl Display {
     
     fn show_two_column_layout(&self, art_lines: &[String], info_lines: &[String]) {
         let max_lines = art_lines.len().max(info_lines.len());
-        let art_width = 25; // Fixed width for ASCII art column
+        let art_width = 35; // Fixed width for ASCII art column
         
         for i in 0..max_lines {
             let art_line = art_lines.get(i).cloned().unwrap_or_default();
@@ -193,7 +222,10 @@ impl Display {
             };
             let padding = " ".repeat(padding_len);
             
-            println!("{}{}{}", art_line, padding, info_line);
+            // Only print line if at least one column has content
+            if !art_line.is_empty() || !info_line.is_empty() {
+                println!("{}{}{}", art_line, padding, info_line);
+            }
         }
         
         // Add some spacing after the layout
