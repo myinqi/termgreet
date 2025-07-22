@@ -13,12 +13,7 @@ separator = "bright_blue"
 [display]
 show_image = true
 image_path = "~/Bilder/khrom_small.png"  # Pfad zu Ihrem PNG-Bild
-ascii_art = """
-╭─────────────────────╮
-│                     │
-│     TermGreet       │
-│                     │
-╰─────────────────────╯"""
+prefer_kitty_graphics = true  # true = Kitty Protocol bevorzugt, false = viuer erzwingen
 padding = 2
 
 [display.image_size]

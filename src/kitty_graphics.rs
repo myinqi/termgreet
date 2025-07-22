@@ -181,20 +181,7 @@ impl KittyGraphics {
         self.render_image_standard(image_path, width, height)
     }
 
-    /// Get terminal cell size in pixels (rough estimation)
-    pub fn estimate_cell_size() -> (u32, u32) {
-        // Default estimation: most terminals use ~8x16 pixel cells
-        // This could be refined by querying terminal capabilities
-        (8, 16)
-    }
 
-    /// Calculate optimal image size in cells for given pixel dimensions
-    pub fn calculate_cell_dimensions(pixel_width: u32, pixel_height: u32) -> (u32, u32) {
-        let (cell_w, cell_h) = Self::estimate_cell_size();
-        let width_cells = (pixel_width + cell_w - 1) / cell_w; // Ceiling division
-        let height_cells = (pixel_height + cell_h - 1) / cell_h;
-        (width_cells, height_cells)
-    }
 }
 
 impl Default for KittyGraphics {

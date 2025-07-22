@@ -31,25 +31,18 @@ impl Display {
         // Prepare system info lines
         let info_lines = self.prepare_system_info_lines(system_info);
         
-        // Check if we should display a PNG image with special layout
+        // Display PNG image if configured and available
         if self.show_images && self.config.display.show_image {
             if let Some(ref image_path) = self.config.display.image_path {
                 if image_path.exists() {
-                    // Use special image layout that renders image and info side by side
-                    self.show_image_with_side_info(image_path, &info_lines)?;
+                    self.show_image_with_info(image_path, &info_lines)?;
                     return Ok(());
                 }
             }
         }
         
-        // Use ASCII art with standard two-column layout
-        let art_lines = if let Some(ref ascii_art) = self.config.display.ascii_art {
-            ascii_art.lines().map(|s| s.to_string()).collect()
-        } else {
-            self.get_default_ascii_lines()
-        };
-        
-        self.show_two_column_layout(&art_lines, &info_lines);
+        // No image configured or available - show info only
+        self.show_info_only(&info_lines);
         
         Ok(())
     }
@@ -93,11 +86,10 @@ impl Display {
         let width = self.config.display.image_size.width;
         let height = self.config.display.image_size.height;
         
-        // Try Kitty Graphics Protocol first for pixel-perfect rendering
-        if self.kitty_graphics.supports_kitty {
+        // Try Kitty Graphics Protocol if preferred and supported
+        if self.config.display.prefer_kitty_graphics && self.kitty_graphics.supports_kitty {
             match self.kitty_graphics.render_image(image_path, width, height) {
                 Ok(_) => {
-                    println!("[Kitty Graphics Protocol] Rendered with pixel-perfect quality");
                     return Ok(());
                 }
                 Err(e) => {
@@ -123,7 +115,7 @@ impl Display {
             .map_err(|e| anyhow::anyhow!("Failed to display image: {}", e))
     }
     
-    fn show_image_with_side_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
+    fn show_image_with_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
         // This is the tricky part: we need to render the image and position text beside it
         // Terminal image rendering makes this challenging, but we'll try a hybrid approach
         
@@ -146,13 +138,9 @@ impl Display {
                 }
             }
             Err(_) => {
-                // Failed to render image, fall back to ASCII art layout
-                let art_lines = if let Some(ref ascii_art) = self.config.display.ascii_art {
-                    ascii_art.lines().map(|s| s.to_string()).collect()
-                } else {
-                    self.get_default_ascii_lines()
-                };
-                self.show_two_column_layout(&art_lines, info_lines);
+                // Failed to render image, show info only
+                eprintln!("[Warning] Image rendering failed, showing system info only");
+                self.show_info_only(info_lines);
             }
         }
         
@@ -166,15 +154,16 @@ impl Display {
     
 
     
-    fn get_default_ascii_lines(&self) -> Vec<String> {
-        let ascii_art = r#"╭─────────────────────╮
-│                     │
-│     TermGreet       │
-│                     │
-╰─────────────────────╯"#;
-        ascii_art.lines().map(|line| {
-            self.apply_color(line, &self.config.general.colors.title).to_string()
-        }).collect()
+    fn show_info_only(&self, info_lines: &[String]) {
+        // Display system information in a clean single column
+        for line in info_lines.iter() {
+            println!("{}", line);
+        }
+        
+        // Add padding
+        for _ in 0..self.config.display.padding {
+            println!();
+        }
     }
     
     fn prepare_system_info_lines(&self, system_info: &SystemInfo) -> Vec<String> {
@@ -227,61 +216,6 @@ impl Display {
         lines
     }
     
-    fn show_two_column_layout(&self, art_lines: &[String], info_lines: &[String]) {
-        let max_lines = art_lines.len().max(info_lines.len());
-        let art_width = 35; // Fixed width for ASCII art column
-        
-        for i in 0..max_lines {
-            let art_line = art_lines.get(i).cloned().unwrap_or_default();
-            let info_line = info_lines.get(i).cloned().unwrap_or_default();
-            
-            // Calculate padding after ASCII art
-            let art_display_len = self.strip_ansi_codes(&art_line).len();
-            let padding_len = if art_display_len < art_width {
-                art_width - art_display_len
-            } else {
-                2 // Minimum spacing
-            };
-            let padding = " ".repeat(padding_len);
-            
-            // Only print line if at least one column has content
-            if !art_line.is_empty() || !info_line.is_empty() {
-                println!("{}{}{}", art_line, padding, info_line);
-            }
-        }
-        
-        // Add some spacing after the layout
-        for _ in 0..self.config.display.padding {
-            println!();
-        }
-    }
-    
-    fn strip_ansi_codes(&self, text: &str) -> String {
-        // More robust ANSI code removal for length calculation
-        let mut result = String::new();
-        let mut chars = text.chars().peekable();
-        
-        while let Some(ch) = chars.next() {
-            if ch == '\x1b' {
-                // Skip escape sequence
-                if chars.peek() == Some(&'[') {
-                    chars.next(); // consume '['
-                    // Skip until we find a letter (end of escape sequence)
-                    while let Some(next_ch) = chars.next() {
-                        if next_ch.is_ascii_alphabetic() {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                result.push(ch);
-            }
-        }
-        
-        result
-    }
-
-
 }
 
 impl Display {

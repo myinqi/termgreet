@@ -30,7 +30,7 @@ pub struct DisplayConfig {
     pub show_image: bool,
     pub image_path: Option<PathBuf>,
     pub image_size: ImageSize,
-    pub ascii_art: Option<String>,
+    pub prefer_kitty_graphics: bool,
     pub padding: u8,
 }
 
@@ -89,7 +89,7 @@ impl Default for Config {
                     width: 40,
                     height: 20,
                 },
-                ascii_art: None,
+                prefer_kitty_graphics: true,
                 padding: 2,
             },
             modules: ModulesConfig {
