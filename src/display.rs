@@ -120,8 +120,8 @@ impl Display {
                 println!(); // Add spacing after image
                 
                 // Show system info in a clean single column below the image
-                for (i, line) in info_lines.iter().enumerate() {
-                    println!("[{}] >{}<", i, line);
+                for line in info_lines.iter() {
+                    println!("{}", line);
                 }
             }
             Err(_) => {
