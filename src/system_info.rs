@@ -110,26 +110,94 @@ impl SystemInfo {
     }
 
     fn get_window_manager() -> String {
-        // Try to detect window manager
-        if let Ok(wm) = env::var("WINDOW_MANAGER") {
-            return wm;
-        }
-
-        // Check for common WMs
-        let wms = ["i3", "sway", "bspwm", "dwm", "awesome", "xmonad", "openbox"];
-        for wm in &wms {
-            if Self::run_command("pgrep", &[wm]).is_some() {
-                return wm.to_string();
+        // Check XDG_SESSION_TYPE first
+        let session_type = env::var("XDG_SESSION_TYPE").unwrap_or_default();
+        
+        // For Wayland sessions
+        if session_type == "wayland" {
+            // Check for Wayland compositors
+            let wayland_wms = [
+                ("kwin_wayland", "KWin"),
+                ("gnome-shell", "GNOME Shell"),
+                ("weston", "Weston"),
+                ("sway", "Sway"),
+                ("river", "River"),
+                ("hyprland", "Hyprland"),
+                ("wayfire", "Wayfire"),
+            ];
+            
+            for (process, name) in &wayland_wms {
+                if Self::run_command("pgrep", &["-x", process]).is_some() {
+                    return name.to_string();
+                }
+            }
+            
+            // Check WAYLAND_DISPLAY for compositor info
+            if let Ok(display) = env::var("WAYLAND_DISPLAY") {
+                if !display.is_empty() {
+                    return "Wayland Compositor".to_string();
+                }
             }
         }
-
-        // Fallback to checking X11 WM
-        Self::run_command("xprop", &["-root", "_NET_WM_NAME"])
-            .and_then(|output| {
-                output.split('=').nth(1)
-                    .map(|s| s.trim().trim_matches('"').to_string())
-            })
-            .unwrap_or_else(|| "Unknown".to_string())
+        
+        // For X11 sessions
+        if session_type == "x11" || env::var("DISPLAY").is_ok() {
+            // Try getting WM name from X11 properties
+            if let Some(output) = Self::run_command("xprop", &["-root", "-notype", "_NET_WM_NAME"]) {
+                if let Some(wm_name) = output.split('=').nth(1) {
+                    let wm_name = wm_name.trim().trim_matches('"').trim();
+                    if !wm_name.is_empty() && wm_name != "(null)" {
+                        return wm_name.to_string();
+                    }
+                }
+            }
+            
+            // Check for common X11 WMs by process
+            let x11_wms = [
+                ("kwin_x11", "KWin"),
+                ("kwin", "KWin"),
+                ("gnome-shell", "GNOME Shell"),
+                ("xfwm4", "Xfwm4"),
+                ("openbox", "Openbox"),
+                ("i3", "i3"),
+                ("bspwm", "bspwm"),
+                ("dwm", "dwm"),
+                ("awesome", "awesome"),
+                ("xmonad", "xmonad"),
+                ("fluxbox", "Fluxbox"),
+                ("blackbox", "Blackbox"),
+                ("icewm", "IceWM"),
+                ("jwm", "JWM"),
+                ("herbstluftwm", "herbstluftwm"),
+            ];
+            
+            for (process, name) in &x11_wms {
+                if Self::run_command("pgrep", &["-x", process]).is_some() {
+                    return name.to_string();
+                }
+            }
+        }
+        
+        // Check environment variables as fallback
+        if let Ok(wm) = env::var("WINDOW_MANAGER") {
+            if !wm.is_empty() {
+                return wm;
+            }
+        }
+        
+        // Check desktop session
+        if let Ok(session) = env::var("DESKTOP_SESSION") {
+            match session.to_lowercase().as_str() {
+                "plasma" | "plasmawayland" | "plasmax11" => return "KWin".to_string(),
+                "gnome" | "gnome-wayland" | "gnome-xorg" => return "GNOME Shell".to_string(),
+                "xfce" => return "Xfwm4".to_string(),
+                "lxde" => return "Openbox".to_string(),
+                "i3" => return "i3".to_string(),
+                _ => {}
+            }
+        }
+        
+        "Unknown".to_string()
     }
 
     fn get_shell() -> String {
