@@ -8,6 +8,7 @@ pub struct Config {
     pub general: GeneralConfig,
     pub display: DisplayConfig,
     pub modules: ModulesConfig,
+    pub show_motd: bool,
     pub motd_file: PathBuf,
 }
 
@@ -116,6 +117,7 @@ impl Default for Config {
                 battery: true,
                 locale: false,
             },
+            show_motd: true,
             motd_file: dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from(".config"))
                 .join("termgreet")

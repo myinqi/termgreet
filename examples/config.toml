@@ -42,5 +42,8 @@ disk = true
 battery = true
 locale = false
 
+# Enable or disable MOTD display
+show_motd = true
+
 # Pfad zur MOTD-Konfigurationsdatei
 motd_file = "~/.config/termgreet/motd.toml"

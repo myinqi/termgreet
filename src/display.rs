@@ -36,6 +36,7 @@ impl Display {
             if let Some(ref image_path) = self.config.display.image_path {
                 if image_path.exists() {
                     self.show_image_with_info(image_path, &info_lines)?;
+                    self.show_motd_if_enabled()?;
                     return Ok(());
                 }
             }
@@ -43,6 +44,26 @@ impl Display {
         
         // No image configured or available - show info only
         self.show_info_only(&info_lines);
+        self.show_motd_if_enabled()?;
+        
+        Ok(())
+    }
+
+    fn show_motd_if_enabled(&self) -> Result<()> {
+        if !self.config.show_motd {
+            return Ok(());
+        }
+
+        match MotdConfig::load(&self.config.motd_file) {
+            Ok(motd_config) => {
+                if motd_config.enabled && !motd_config.messages.is_empty() {
+                    Self::show_motd(&motd_config);
+                }
+            }
+            Err(_) => {
+                // Silently ignore MOTD loading errors to avoid disrupting main display
+            }
+        }
         
         Ok(())
     }
@@ -56,30 +77,27 @@ impl Display {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             use std::time::{SystemTime, UNIX_EPOCH};
-
+            
+            // Create a seed based on current time for randomness
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
             let mut hasher = DefaultHasher::new();
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .hash(&mut hasher);
+            now.hash(&mut hasher);
+            
             let index = (hasher.finish() as usize) % motd_config.messages.len();
             &motd_config.messages[index]
         } else {
             &motd_config.messages[0]
         };
 
-        // Create a temporary Display instance for color application
+        // Create a temporary display instance for color formatting
         let temp_display = Display {
-            config: crate::config::Config::default(),
+            config: Config::default(),
             show_images: false,
             kitty_graphics: KittyGraphics::new(),
         };
+        
         println!("{}", temp_display.apply_color(message, &motd_config.color));
     }
-
-
-
 
     
     fn render_image_to_terminal(&self, image_path: &std::path::Path) -> Result<()> {

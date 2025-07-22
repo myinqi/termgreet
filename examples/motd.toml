@@ -1,17 +1,14 @@
-# TermGreet MOTD (Message of the Day) Beispiel-Konfiguration
-# Kopieren Sie diese Datei nach ~/.config/termgreet/motd.toml und passen Sie sie an
+# TermGreet MOTD (Message of the Day) Example Configuration
+# Copy this file to ~/.config/termgreet/motd.toml and modify it as needed
 
 enabled = true
 random = true
 color = "bright_green"
 
 messages = [
-    "Willkommen auf Ihrem System! 🖥️",
-    "Haben Sie einen großartigen Tag! ☀️",
-    "Bereit zum Programmieren! 💻",
-    "Möge der Code mit Ihnen sein! 🚀",
-    "Zeit für neue Abenteuer! ⚡",
-    "Lassen Sie uns etwas Großartiges schaffen! 🎯",
-    "Ihr System ist bereit für Action! 🔥",
-    "Heute ist ein guter Tag zum Coden! 🎨"
+    "Welcome to your system!",
+    "Have a great day!",
+    "Ready to code!",
+    "System is running smoothly!",
+    "Time to be productive!"
 ]
