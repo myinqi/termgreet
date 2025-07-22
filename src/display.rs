@@ -4,10 +4,12 @@ use viuer::{Config as ViuerConfig, print_from_file};
 
 use crate::config::{Config, MotdConfig};
 use crate::system_info::SystemInfo;
+use crate::kitty_graphics::KittyGraphics;
 
 pub struct Display {
     config: Config,
     show_images: bool,
+    kitty_graphics: KittyGraphics,
 }
 
 impl Display {
@@ -15,6 +17,7 @@ impl Display {
         Self {
             config,
             show_images,
+            kitty_graphics: KittyGraphics::new(),
         }
     }
 
@@ -77,6 +80,7 @@ impl Display {
         let temp_display = Display {
             config: crate::config::Config::default(),
             show_images: false,
+            kitty_graphics: KittyGraphics::new(),
         };
         println!("{}", temp_display.apply_color(message, &motd_config.color));
     }
@@ -86,12 +90,29 @@ impl Display {
 
     
     fn render_image_to_terminal(&self, image_path: &std::path::Path) -> Result<()> {
+        let width = self.config.display.image_size.width;
+        let height = self.config.display.image_size.height;
+        
+        // Try Kitty Graphics Protocol first for pixel-perfect rendering
+        if self.kitty_graphics.supports_kitty {
+            match self.kitty_graphics.render_image(image_path, width, height) {
+                Ok(_) => {
+                    println!("[Kitty Graphics Protocol] Rendered with pixel-perfect quality");
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("[Warning] Kitty Graphics failed: {}, falling back to viuer", e);
+                }
+            }
+        }
+        
+        // Fallback to viuer for terminals that don't support Kitty Graphics Protocol
         let viuer_config = ViuerConfig {
             transparent: true,
             absolute_offset: false,
-            width: Some(self.config.display.image_size.width),
-            height: Some(self.config.display.image_size.height),
-            use_kitty: true,  // Enable Kitty graphics protocol for better quality
+            width: Some(width),
+            height: Some(height),
+            use_kitty: true,  // viuer's own kitty support (different from our implementation)
             use_iterm: true,  // Enable iTerm2 graphics protocol
             truecolor: true,  // Use 24-bit colors for better color accuracy
             ..Default::default()

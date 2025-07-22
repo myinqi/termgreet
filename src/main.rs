@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod config;
 mod system_info;
 mod display;
+mod kitty_graphics;
 
 use config::{Config, MotdConfig};
 use system_info::SystemInfo;
