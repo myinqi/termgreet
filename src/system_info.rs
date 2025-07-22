@@ -19,6 +19,7 @@ impl SystemInfo {
         data.insert("OS".to_string(), Self::get_os_info());
         data.insert("KERNEL".to_string(), Self::get_kernel_version());
         data.insert("UPTIME".to_string(), Self::format_uptime(System::uptime()));
+        data.insert("OS_AGE".to_string(), Self::get_os_age());
 
         // Desktop Environment / Window Manager
         data.insert("DE".to_string(), Self::get_desktop_environment());
@@ -417,6 +418,46 @@ impl SystemInfo {
                         return theme.to_string();
                     }
                 }
+            }
+        }
+        
+        "Unknown".to_string()
+    }
+
+    fn get_os_age() -> String {
+        use std::time::SystemTime;
+        
+        // Try different approaches to find OS installation date
+        let install_paths = [
+            "/lost+found",           // Root filesystem creation (Linux)
+            "/var/log/installer",    // Ubuntu/Debian installer logs
+            "/var/log/anaconda",     // Red Hat/Fedora installer logs
+            "/etc",                  // Fallback: /etc directory
+            "/boot",                 // Boot directory
+        ];
+        
+        let mut oldest_time: Option<SystemTime> = None;
+        
+        for path in &install_paths {
+            if let Ok(metadata) = fs::metadata(path) {
+                if let Ok(created) = metadata.created().or_else(|_| metadata.modified()) {
+                    match oldest_time {
+                        None => oldest_time = Some(created),
+                        Some(existing) => {
+                            if created < existing {
+                                oldest_time = Some(created);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Calculate days since installation
+        if let Some(install_time) = oldest_time {
+            if let Ok(duration) = SystemTime::now().duration_since(install_time) {
+                let days = duration.as_secs() / (24 * 60 * 60);
+                return format!("{} days", days);
             }
         }
         

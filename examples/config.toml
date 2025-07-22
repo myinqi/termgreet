@@ -29,6 +29,7 @@ height = 25
 os = true
 kernel = true
 uptime = true
+os_age = true
 packages = true
 shell = true
 resolution = true

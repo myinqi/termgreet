@@ -167,6 +167,7 @@ impl Display {
             ("os", "OS", modules.os),
             ("kernel", "Kernel", modules.kernel),
             ("uptime", "Uptime", modules.uptime),
+            ("os_age", "OS Age", modules.os_age),
             ("packages", "Packages", modules.packages),
             ("shell", "Shell", modules.shell),
             ("resolution", "Resolution", modules.resolution),
