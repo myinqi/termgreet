@@ -1,0 +1,48 @@
+# TermGreet Beispiel-Konfiguration
+# Kopieren Sie diese Datei nach ~/.config/termgreet/config.toml und passen Sie sie an
+
+[general]
+title = "System Information"
+separator = " -> "
+
+[general.colors]
+title = "bright_cyan"
+info = "bright_white"
+separator = "bright_blue"
+
+[display]
+show_image = true
+image_path = "~/Bilder/khrom_small.png"  # Pfad zu Ihrem PNG-Bild
+ascii_art = """
+╭─────────────────────╮
+│                     │
+│     TermGreet       │
+│                     │
+╰─────────────────────╯"""
+padding = 2
+
+[display.image_size]
+width = 40
+height = 20
+
+[modules]
+os = true
+kernel = true
+uptime = true
+packages = true
+shell = true
+resolution = true
+de = true
+wm = true
+theme = false
+icons = false
+terminal = true
+cpu = true
+gpu = true
+memory = true
+disk = true
+battery = true
+locale = false
+
+# Pfad zur MOTD-Konfigurationsdatei
+motd_file = "~/.config/termgreet/motd.toml"

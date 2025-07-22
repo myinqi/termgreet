@@ -19,25 +19,40 @@ impl Display {
     }
 
     pub fn show(&self, system_info: &SystemInfo) -> Result<()> {
-        // Prepare system info lines
-        let info_lines = self.prepare_system_info_lines(system_info);
-        
-        // Prepare ASCII art or image lines
-        let art_lines = if self.show_images && self.config.display.show_image {
-            self.prepare_image_lines()?
-        } else if let Some(ref ascii_art) = self.config.display.ascii_art {
-            ascii_art.lines().map(|s| s.to_string()).collect()
-        } else {
-            self.get_default_ascii_lines()
-        };
-        
         // Show title if configured
         if let Some(ref title) = self.config.general.title {
             println!("{}", self.apply_color(title, &self.config.general.colors.title));
             println!();
         }
         
-        // Display in two columns (art left, info right)
+        // Prepare system info lines
+        let info_lines = self.prepare_system_info_lines(system_info);
+        
+        // Handle image display or ASCII art
+        if self.show_images && self.config.display.show_image {
+            if let Some(ref image_path) = self.config.display.image_path {
+                if image_path.exists() {
+                    match self.render_image_to_terminal(image_path) {
+                        Ok(()) => {
+                            // Image rendered successfully, now show info alongside
+                            self.show_info_after_image(&info_lines);
+                            return Ok(());
+                        }
+                        Err(_) => {
+                            // Fall through to ASCII art
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Show ASCII art with info in two columns
+        let art_lines = if let Some(ref ascii_art) = self.config.display.ascii_art {
+            ascii_art.lines().map(|s| s.to_string()).collect()
+        } else {
+            self.get_default_ascii_lines()
+        };
+        
         self.show_two_column_layout(&art_lines, &info_lines);
         
         Ok(())
@@ -73,40 +88,37 @@ impl Display {
         println!("{}", temp_display.apply_color(message, &motd_config.color));
     }
 
-    fn show_image(&self) -> Result<()> {
-        if let Some(ref image_path) = self.config.display.image_path {
-            if image_path.exists() {
-                let viuer_config = ViuerConfig {
-                    transparent: true,
-                    absolute_offset: false,
-                    width: Some(self.config.display.image_size.width),
-                    height: Some(self.config.display.image_size.height),
-                    ..Default::default()
-                };
 
-                match print_from_file(image_path, &viuer_config) {
-                    Ok(_) => return Ok(()),
-                    Err(e) => {
-                        eprintln!("Warning: Failed to display image: {}", e);
-                    }
-                }
-            }
-        }
 
-        // Fallback to default ASCII art if image fails
-        // This method is now handled in prepare_image_lines
-        Ok(())
+
+    
+    fn render_image_to_terminal(&self, image_path: &std::path::Path) -> Result<()> {
+        let viuer_config = ViuerConfig {
+            transparent: true,
+            absolute_offset: false,
+            width: Some(self.config.display.image_size.width),
+            height: Some(self.config.display.image_size.height),
+            ..Default::default()
+        };
+
+        print_from_file(image_path, &viuer_config)
+            .map(|_| ()) // Ignore the returned dimensions
+            .map_err(|e| anyhow::anyhow!("Failed to display image: {}", e))
     }
-
-    fn prepare_image_lines(&self) -> Result<Vec<String>> {
-        if let Some(ref image_path) = self.config.display.image_path {
-            if image_path.exists() {
-                // For now, return empty lines as image display in two-column layout is complex
-                // This would need terminal-specific image positioning
-                return Ok(vec!["[Image would be displayed here]".to_string()]);
-            }
+    
+    fn show_info_after_image(&self, info_lines: &[String]) {
+        // Add some spacing after image
+        println!();
+        
+        // Display system info in a simple list format after the image
+        for line in info_lines {
+            println!("{}", line);
         }
-        Ok(self.get_default_ascii_lines())
+        
+        // Add padding
+        for _ in 0..self.config.display.padding {
+            println!();
+        }
     }
     
     fn get_default_ascii_lines(&self) -> Vec<String> {
