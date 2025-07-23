@@ -322,12 +322,15 @@ impl Display {
             // Calculate image height in terminal cells for cursor positioning
             let image_height = self.config.display.image_size.height as usize;
             
-            // Move cursor up to the top of the image and position it to the right
+            // Move cursor up to the top of the content and position it to the right
             // ANSI escape sequence: \x1b[{rows}A moves cursor up, \x1b[{cols}C moves cursor right
             let info_start_col = image_width + padding;
             
+            // Calculate how far up we need to move to accommodate ALL modules
+            let total_content_height = std::cmp::max(image_height, info_lines.len());
+            
             // Move cursor to the top-right position for info display
-            print!("\x1b[{}A", image_height); // Move cursor up by image height
+            print!("\x1b[{}A", total_content_height); // Move cursor up by total content height
             print!("\x1b[{}C", info_start_col); // Move cursor right to info column
             
             // Print each info line with proper cursor positioning
@@ -340,9 +343,12 @@ impl Display {
                 print!("{}", line);
             }
             
-            // Move cursor to end position (below the image)
-            let remaining_lines = if image_height > info_lines.len() {
-                image_height - info_lines.len()
+            // Move cursor to end position (below the content)
+            // Always position cursor below ALL info lines, not just image height
+            let final_position = std::cmp::max(image_height, info_lines.len());
+            let current_line = info_lines.len();
+            let remaining_lines = if final_position > current_line {
+                final_position - current_line
             } else {
                 0
             };
@@ -360,6 +366,7 @@ impl Display {
             
             // Calculate layout dimensions
             let _info_start_col = image_width + padding * 2;
+            // Always show ALL info lines, even if they exceed image height
             let max_lines = std::cmp::max(image_lines.len(), info_lines.len());
             
             // Print side-by-side layout
