@@ -224,6 +224,7 @@ impl Display {
             ("terminal", "Terminal", modules.terminal),
             ("font", "Font", modules.font),
             ("user", "User", modules.user),
+            ("hostname", "Hostname", modules.hostname),
             ("cpu", "CPU", modules.cpu),
             ("gpu", "GPU", modules.gpu),
             ("memory", "Memory", modules.memory),

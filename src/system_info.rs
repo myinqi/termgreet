@@ -30,6 +30,7 @@ impl SystemInfo {
         data.insert("TERMINAL".to_string(), Self::get_terminal());
         data.insert("FONT".to_string(), Self::get_font_info());
         data.insert("USER".to_string(), Self::get_user_info());
+        data.insert("HOSTNAME".to_string(), Self::get_hostname_info());
 
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
@@ -330,8 +331,6 @@ impl SystemInfo {
         
         // Debug: Check what terminal we're running in
         let term_program = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "unknown".to_string());
-        let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".to_string());
-        let terminal_emulator = std::env::var("TERMINAL_EMULATOR").unwrap_or_else(|_| "unknown".to_string());
         
         // Try different terminal detection methods
         
@@ -426,7 +425,7 @@ impl SystemInfo {
         }
         
         // Method 4: Check for GNOME Terminal
-        if terminal_emulator == "gnome-terminal" || std::env::var("GNOME_TERMINAL_SCREEN").is_ok() || std::env::var("GNOME_TERMINAL_SERVICE").is_ok() {
+        if std::env::var("TERMINAL_EMULATOR").unwrap_or_default() == "gnome-terminal" || std::env::var("GNOME_TERMINAL_SCREEN").is_ok() || std::env::var("GNOME_TERMINAL_SERVICE").is_ok() {
             // Try to get the current profile UUID
             if let Some(profile_output) = Self::run_command("gsettings", &["get", "org.gnome.Terminal.ProfilesList", "default"]) {
                 let profile_uuid = profile_output.trim().trim_matches('\'').trim_matches('"');
@@ -578,9 +577,6 @@ impl SystemInfo {
         }
         
         // If we get here, let's provide debug info to help identify the terminal
-        let debug_info = format!("Debug: TERM_PROGRAM={}, TERM={}, TERMINAL_EMULATOR={}", 
-                                term_program, term, terminal_emulator);
-        
         // Also check for other common terminal environment variables
         let mut env_vars = Vec::new();
         if std::env::var("KITTY_WINDOW_ID").is_ok() { env_vars.push("KITTY"); }
@@ -627,16 +623,54 @@ impl SystemInfo {
             }
         }
         
-        // Last resort: try to get from /etc/passwd
-        if let Ok(uid) = std::env::var("UID") {
-            if let Some(output) = Self::run_command("getent", &["passwd", &uid]) {
-                if let Some(user) = output.split(':').next() {
-                    return user.to_string();
+        // Fallback: try getent passwd with current UID
+        if let Some(output) = Self::run_command("id", &["-u"]) {
+            let uid = output.trim();
+            if let Some(passwd_output) = Self::run_command("getent", &["passwd", uid]) {
+                if let Some(username) = passwd_output.split(':').next() {
+                    if !username.is_empty() {
+                        return username.to_string();
+                    }
                 }
             }
         }
         
         "Unknown User".to_string()
+    }
+    
+    fn get_hostname_info() -> String {
+        // Try to get hostname from environment variable
+        if let Ok(hostname) = std::env::var("HOSTNAME") {
+            if !hostname.is_empty() {
+                return hostname;
+            }
+        }
+        
+        // Try hostname command
+        if let Some(output) = Self::run_command("hostname", &[]) {
+            let hostname = output.trim();
+            if !hostname.is_empty() {
+                return hostname.to_string();
+            }
+        }
+        
+        // Try reading /etc/hostname
+        if let Ok(content) = std::fs::read_to_string("/etc/hostname") {
+            let hostname = content.trim();
+            if !hostname.is_empty() {
+                return hostname.to_string();
+            }
+        }
+        
+        // Try uname -n
+        if let Some(output) = Self::run_command("uname", &["-n"]) {
+            let hostname = output.trim();
+            if !hostname.is_empty() {
+                return hostname.to_string();
+            }
+        }
+        
+        "Unknown Hostname".to_string()
     }
 
     fn get_memory_info(sys: &System) -> String {
