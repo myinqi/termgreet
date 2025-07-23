@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     
-    let system_info = SystemInfo::gather();
+    let system_info = SystemInfo::gather_with_config(&config);
     let display = Display::new(config, !cli.no_image);
     
     display.show(&system_info)?;

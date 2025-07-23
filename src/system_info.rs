@@ -10,7 +10,7 @@ pub struct SystemInfo {
 }
 
 impl SystemInfo {
-    pub fn gather() -> Self {
+    pub fn gather_with_config(config: &crate::config::Config) -> Self {
         let mut data = HashMap::new();
         let mut sys = System::new_all();
         sys.refresh_all();
@@ -25,9 +25,14 @@ impl SystemInfo {
         data.insert("DE".to_string(), Self::get_desktop_environment());
         data.insert("WM".to_string(), Self::get_window_manager());
 
-        // Shell
-        data.insert("SHELL".to_string(), Self::get_shell());
-        data.insert("TERMINAL".to_string(), Self::get_terminal());
+        // Shell and Terminal - use version functions if enabled
+        if config.modules.show_versions {
+            data.insert("SHELL".to_string(), Self::get_shell_with_version());
+            data.insert("TERMINAL".to_string(), Self::get_terminal_with_version());
+        } else {
+            data.insert("SHELL".to_string(), Self::get_shell());
+            data.insert("TERMINAL".to_string(), Self::get_terminal());
+        }
         data.insert("FONT".to_string(), Self::get_font_info());
         data.insert("USER".to_string(), Self::get_user_info());
         data.insert("HOSTNAME".to_string(), Self::get_hostname_info());
@@ -216,6 +221,91 @@ impl SystemInfo {
             })
             .unwrap_or_else(|_| "Unknown".to_string())
     }
+    
+    fn get_shell_with_version() -> String {
+        let shell_name = env::var("SHELL")
+            .map(|shell| {
+                shell.split('/').last().unwrap_or("Unknown").to_string()
+            })
+            .unwrap_or_else(|_| "Unknown".to_string());
+        
+        if shell_name == "Unknown" {
+            return shell_name;
+        }
+        
+        // Try to get version for common shells
+        match shell_name.as_str() {
+            "bash" => {
+                if let Some(output) = Self::run_command("bash", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "GNU bash, version 5.2.21(1)-release"
+                        if let Some(version_start) = line.find("version ") {
+                            let version_part = &line[version_start + 8..];
+                            if let Some(version_end) = version_part.find('(') {
+                                let version = &version_part[..version_end];
+                                return format!("{} {}", shell_name, version);
+                            } else if let Some(version_end) = version_part.find(' ') {
+                                let version = &version_part[..version_end];
+                                return format!("{} {}", shell_name, version);
+                            }
+                        }
+                    }
+                }
+            },
+            "zsh" => {
+                if let Some(output) = Self::run_command("zsh", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "zsh 5.9 (x86_64-pc-linux-gnu)"
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            return format!("{} {}", shell_name, parts[1]);
+                        }
+                    }
+                }
+            },
+            "fish" => {
+                if let Some(output) = Self::run_command("fish", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "fish, version 3.6.1"
+                        if let Some(version_start) = line.find("version ") {
+                            let version = &line[version_start + 8..].trim();
+                            return format!("{} {}", shell_name, version);
+                        }
+                    }
+                }
+            },
+            "dash" => {
+                // dash doesn't have a --version flag, try to get from package manager
+                if let Some(output) = Self::run_command("dpkg", &["-l", "dash"]) {
+                    for line in output.lines() {
+                        if line.contains("dash") && line.starts_with("ii") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 3 {
+                                return format!("{} {}", shell_name, parts[2]);
+                            }
+                        }
+                    }
+                }
+            },
+            _ => {
+                // Try generic --version for other shells
+                if let Some(output) = Self::run_command(&shell_name, &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Try to extract version number
+                        let words: Vec<&str> = line.split_whitespace().collect();
+                        for word in &words {
+                            // Look for version-like patterns (e.g., "1.2.3", "5.9")
+                            if word.chars().next().unwrap_or('a').is_ascii_digit() && word.contains('.') {
+                                return format!("{} {}", shell_name, word);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        shell_name
+    }
 
     fn get_terminal() -> String {
         // Check common terminal environment variables
@@ -242,6 +332,105 @@ impl SystemInfo {
         }
 
         "Unknown".to_string()
+    }
+
+    fn get_terminal_with_version() -> String {
+        let terminal_name = Self::get_terminal();
+        
+        if terminal_name == "Unknown" {
+            return terminal_name;
+        }
+        
+        // Try to get version for common terminals
+        match terminal_name.as_str() {
+            "kitty" => {
+                if let Some(output) = Self::run_command("kitty", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "kitty 0.32.2"
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            return format!("{} {}", terminal_name, parts[1]);
+                        }
+                    }
+                }
+            },
+            "ghostty" => {
+                if let Some(output) = Self::run_command("ghostty", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "ghostty 1.0.0"
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            return format!("{} {}", terminal_name, parts[1]);
+                        }
+                    }
+                }
+            },
+            "alacritty" => {
+                if let Some(output) = Self::run_command("alacritty", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "alacritty 0.13.2"
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            return format!("{} {}", terminal_name, parts[1]);
+                        }
+                    }
+                }
+            },
+            "gnome-terminal" => {
+                if let Some(output) = Self::run_command("gnome-terminal", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "GNOME Terminal 3.48.2 using VTE 0.70.3 +BIDI +GNUTLS +ICU +SYSTEMD"
+                        if let Some(version_start) = line.find("Terminal ") {
+                            let version_part = &line[version_start + 9..];
+                            if let Some(version_end) = version_part.find(' ') {
+                                let version = &version_part[..version_end];
+                                return format!("GNOME Terminal {}", version);
+                            }
+                        }
+                    }
+                }
+            },
+            "konsole" => {
+                if let Some(output) = Self::run_command("konsole", &["--version"]) {
+                    for line in output.lines() {
+                        if line.starts_with("konsole ") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                return format!("{} {}", terminal_name, parts[1]);
+                            }
+                        }
+                    }
+                }
+            },
+            "wezterm" => {
+                if let Some(output) = Self::run_command("wezterm", &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Parse version from "wezterm 20240203-110809-5046fc22"
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            return format!("{} {}", terminal_name, parts[1]);
+                        }
+                    }
+                }
+            },
+            _ => {
+                // Try generic --version for other terminals
+                if let Some(output) = Self::run_command(&terminal_name, &["--version"]) {
+                    if let Some(line) = output.lines().next() {
+                        // Try to extract version number
+                        let words: Vec<&str> = line.split_whitespace().collect();
+                        for word in &words {
+                            // Look for version-like patterns (e.g., "1.2.3", "0.13.2")
+                            if word.chars().next().unwrap_or('a').is_ascii_digit() && word.contains('.') {
+                                return format!("{} {}", terminal_name, word);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        terminal_name
     }
 
     fn get_cpu_info(sys: &System) -> String {

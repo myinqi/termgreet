@@ -71,6 +71,7 @@ memory = true
 disk = true
 battery = true
 locale = false
+show_versions = true  # Show version information for Shell, Terminal, DE, WM modules
 
 # Enable or disable MOTD display
 show_motd = true

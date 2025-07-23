@@ -54,6 +54,7 @@ pub struct ImageSize {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ModulesConfig {
+    pub show_versions: bool,
     pub os: bool,
     pub kernel: bool,
     pub uptime: bool,
@@ -117,6 +118,7 @@ impl Default for Config {
                 padding: 2,
             },
             modules: ModulesConfig {
+                show_versions: true,
                 os: true,
                 kernel: true,
                 uptime: true,
