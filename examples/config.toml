@@ -84,8 +84,32 @@ gpu = true
 gpu_driver = true
 memory = true
 disk = true
-battery = false
+battery = true
 locale = false
+
+[modules.display_names]
+# Custom display names for modules
+# If not specified, default names will be used
+# Text-only examples (recommended for universal compatibility):
+user_at_host = "System"      # Default: "Login"
+os = "Operating System"      # Default: "OS"
+kernel = "Kernel"             # Default: "Kernel"
+uptime = "Uptime"             # Default: "Uptime"
+os_age = "OS Age"             # Default: "OS Age"
+packages = "Packages"         # Default: "Packages"
+shell = "Shell"               # Default: "Shell"
+resolution = "Resolution"     # Default: "Resolution"
+terminal = "Terminal"         # Default: "Terminal"
+font = "Font"                # Default: "Font"
+cpu = "Processor"            # Default: "CPU"
+gpu = "Graphics"             # Default: "GPU"
+gpu_driver = "GPU Driver"     # Default: "GPU Driver"
+memory = "Memory"             # Default: "Memory"
+disk = "Storage"             # Default: "Disk"
+# Optional: Add Nerd Font icons if your terminal/font supports them:
+# user_at_host = " System"  # Nerd Font icon examples
+# cpu = " Processor"
+# Or leave fields commented out to use defaults
 
 # Enable or disable MOTD display
 show_motd = true

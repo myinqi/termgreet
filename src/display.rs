@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::*;
+use unicode_width::UnicodeWidthStr;
 use viuer::{Config as ViuerConfig, print_from_file};
-
 use crate::config::{Config, MotdConfig};
 use crate::system_info::SystemInfo;
 use crate::kitty_graphics::KittyGraphics;
@@ -386,6 +386,40 @@ impl Display {
         }
     }
     
+    fn get_module_display_name(&self, module_key: &str, default_name: &str) -> String {
+        let display_names = &self.config.modules.display_names;
+        let custom_name = match module_key {
+            "user_at_host" => &display_names.user_at_host,
+            "os" => &display_names.os,
+            "kernel" => &display_names.kernel,
+            "uptime" => &display_names.uptime,
+            "os_age" => &display_names.os_age,
+            "packages" | "packages_combined" => &display_names.packages,
+            "shell" => &display_names.shell,
+            "resolution" => &display_names.resolution,
+            "de" => &display_names.de,
+            "wm" => &display_names.wm,
+            "theme" => &display_names.theme,
+            "icons" => &display_names.icons,
+            "terminal" => &display_names.terminal,
+            "font" => &display_names.font,
+            "user" => &display_names.user,
+            "hostname" => &display_names.hostname,
+            "cpu" => &display_names.cpu,
+            "gpu" => &display_names.gpu,
+            "gpu_driver" => &display_names.gpu_driver,
+            "memory" => &display_names.memory,
+            "disk" => &display_names.disk,
+            "battery" => &display_names.battery,
+            "locale" => &display_names.locale,
+            _ => &None,
+        };
+        
+        custom_name.as_ref().unwrap_or(&default_name.to_string()).clone()
+    }
+
+
+
     fn prepare_system_info_lines(&self, system_info: &SystemInfo) -> Vec<String> {
         let modules = &self.config.modules;
         let colors = &self.config.general.colors;
@@ -434,25 +468,35 @@ impl Display {
             module_order
                 .iter()
                 .filter(|(_, _, enabled)| *enabled)
-                .map(|(_, display_name, _)| display_name.len())
+                .map(|(key, default_name, _)| {
+                    let display_name = self.get_module_display_name(key, default_name);
+                    // Use standard unicode width for Nerd Font icons (consistent width)
+                    display_name.width()
+                })
                 .max()
                 .unwrap_or(0)
         } else {
             0
         };
 
-        for (key, display_name, enabled) in module_order {
+        for (key, default_name, enabled) in module_order {
             if enabled {
                 let lookup_key = key.to_uppercase();
                 if let Some(value) = system_info.data.get(&lookup_key) {
                     let trimmed_value = value.trim();
                     // Only add non-empty, non-Unknown values
                     if !trimmed_value.is_empty() && trimmed_value != "Unknown" {
+                        // Get custom display name (with potential icon)
+                        let display_name = self.get_module_display_name(key, default_name);
+                        
                         // Pad module name for alignment if enabled
                         let padded_name = if separator_config.align_separator {
-                            format!("{:<width$}", display_name, width = max_name_width)
+                            // Calculate visual width and pad accordingly
+                            let visual_width = display_name.width();
+                            let padding_needed = max_name_width.saturating_sub(visual_width);
+                            format!("{}{}", display_name, " ".repeat(padding_needed))
                         } else {
-                            display_name.to_string()
+                            display_name
                         };
                         
                         let line = format!(
