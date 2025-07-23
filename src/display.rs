@@ -227,6 +227,7 @@ impl Display {
             ("hostname", "Hostname", modules.hostname),
             ("cpu", "CPU", modules.cpu),
             ("gpu", "GPU", modules.gpu),
+            ("gpu_driver", "GPU Driver", modules.gpu_driver),
             ("memory", "Memory", modules.memory),
             ("disk", "Disk", modules.disk),
             ("battery", "Battery", modules.battery),

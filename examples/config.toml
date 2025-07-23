@@ -66,6 +66,7 @@ user = true
 hostname = true
 cpu = true
 gpu = true
+gpu_driver = true
 memory = true
 disk = true
 battery = true

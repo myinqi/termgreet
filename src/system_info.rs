@@ -35,6 +35,7 @@ impl SystemInfo {
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
         data.insert("GPU".to_string(), Self::get_gpu_info());
+        data.insert("GPU_DRIVER".to_string(), Self::get_gpu_driver_info());
         data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
         data.insert("DISK".to_string(), Self::get_disk_info(&sys));
 
@@ -671,6 +672,136 @@ impl SystemInfo {
         }
         
         "Unknown Hostname".to_string()
+    }
+    
+    fn get_gpu_driver_info() -> String {
+        // Try to detect GPU driver from various sources
+        
+        // Method 1: Check loaded kernel modules for GPU drivers
+        if let Some(output) = Self::run_command("lsmod", &[]) {
+            let lines: Vec<&str> = output.lines().collect();
+            
+            // Check for NVIDIA drivers
+            for line in &lines {
+                if line.starts_with("nvidia ") {
+                    // Try to get NVIDIA driver version
+                    if let Some(version_output) = Self::run_command("nvidia-smi", &["--query-gpu=driver_version", "--format=csv,noheader,nounits"]) {
+                        let version = version_output.trim();
+                        if !version.is_empty() {
+                            return format!("NVIDIA (proprietary) {}", version);
+                        }
+                    }
+                    return "NVIDIA (proprietary)".to_string();
+                }
+            }
+            
+            // Check for AMD drivers
+            for line in &lines {
+                if line.starts_with("amdgpu ") {
+                    return "AMDGPU (open source)".to_string();
+                } else if line.starts_with("radeon ") {
+                    return "Radeon (open source)".to_string();
+                }
+            }
+            
+            // Check for Intel drivers
+            for line in &lines {
+                if line.starts_with("i915 ") {
+                    return "Intel i915 (open source)".to_string();
+                } else if line.starts_with("xe ") {
+                    return "Intel Xe (open source)".to_string();
+                }
+            }
+            
+            // Check for other drivers
+            for line in &lines {
+                if line.starts_with("nouveau ") {
+                    return "Nouveau (open source)".to_string();
+                } else if line.starts_with("vmwgfx ") {
+                    return "VMware SVGA (open source)".to_string();
+                } else if line.starts_with("virtio_gpu ") {
+                    return "VirtIO GPU (open source)".to_string();
+                }
+            }
+        }
+        
+        // Method 2: Check /proc/driver/nvidia/version for NVIDIA
+        if let Ok(content) = std::fs::read_to_string("/proc/driver/nvidia/version") {
+            if let Some(line) = content.lines().next() {
+                // Parse version from line like "NVRM version: NVIDIA UNIX x86_64 Kernel Module  535.154.05"
+                if let Some(version_start) = line.rfind(" ") {
+                    let version = &line[version_start + 1..];
+                    if !version.is_empty() {
+                        return format!("NVIDIA (proprietary) {}", version);
+                    }
+                }
+                return "NVIDIA (proprietary)".to_string();
+            }
+        }
+        
+        // Method 3: Check dmesg for GPU driver initialization (requires root or specific permissions)
+        if let Some(output) = Self::run_command("dmesg", &[]) {
+            let lines: Vec<&str> = output.lines().collect();
+            
+            // Look for NVIDIA driver messages
+            for line in lines.iter().rev().take(1000) { // Check last 1000 lines
+                if line.contains("NVIDIA") && (line.contains("driver") || line.contains("GPU")) {
+                    if line.contains("version") {
+                        // Try to extract version from dmesg
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        for (i, part) in parts.iter().enumerate() {
+                            if *part == "version" && i + 1 < parts.len() {
+                                return format!("NVIDIA (proprietary) {}", parts[i + 1]);
+                            }
+                        }
+                    }
+                    return "NVIDIA (proprietary)".to_string();
+                }
+                
+                // Look for AMD driver messages
+                if line.contains("amdgpu") && line.contains("driver") {
+                    return "AMDGPU (open source)".to_string();
+                }
+                
+                // Look for Intel driver messages
+                if line.contains("i915") && line.contains("driver") {
+                    return "Intel i915 (open source)".to_string();
+                }
+            }
+        }
+        
+        // Method 4: Check glxinfo for OpenGL driver info
+        if let Some(output) = Self::run_command("glxinfo", &["-B"]) {
+            for line in output.lines() {
+                if line.contains("OpenGL renderer string:") {
+                    if line.contains("NVIDIA") {
+                        return "NVIDIA (proprietary)".to_string();
+                    } else if line.contains("AMD") || line.contains("Radeon") {
+                        return "AMDGPU/Radeon (open source)".to_string();
+                    } else if line.contains("Intel") {
+                        return "Intel (open source)".to_string();
+                    }
+                }
+            }
+        }
+        
+        // Method 5: Check /sys/module for loaded GPU modules
+        let gpu_modules = [
+            ("/sys/module/nvidia", "NVIDIA (proprietary)"),
+            ("/sys/module/amdgpu", "AMDGPU (open source)"),
+            ("/sys/module/radeon", "Radeon (open source)"),
+            ("/sys/module/i915", "Intel i915 (open source)"),
+            ("/sys/module/xe", "Intel Xe (open source)"),
+            ("/sys/module/nouveau", "Nouveau (open source)"),
+        ];
+        
+        for (path, driver_name) in &gpu_modules {
+            if std::path::Path::new(path).exists() {
+                return driver_name.to_string();
+            }
+        }
+        
+        "Unknown Driver".to_string()
     }
 
     fn get_memory_info(sys: &System) -> String {
