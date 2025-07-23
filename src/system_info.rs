@@ -702,12 +702,56 @@ impl SystemInfo {
     fn get_resolution() -> String {
         // Try xrandr for X11
         if let Some(output) = Self::run_command("xrandr", &["--current"]) {
-            for line in output.lines() {
-                if line.contains(" connected primary") || line.contains(" connected ") {
-                    if let Some(res_part) = line.split_whitespace().find(|s| s.contains("x") && s.chars().next().unwrap_or('a').is_ascii_digit()) {
-                        return res_part.split('+').next().unwrap_or("Unknown").to_string();
+            let lines: Vec<&str> = output.lines().collect();
+            let mut current_display_resolution = None;
+            
+            // First pass: find the connected display and its resolution
+            for (i, line) in lines.iter().enumerate() {
+                if line.contains(" connected primary") || (line.contains(" connected ") && !line.contains(" disconnected")) {
+                    // Extract resolution from connected line like "DP-3 connected primary 3440x1440+0+0"
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    for part in &parts {
+                        if part.contains("x") && part.chars().next().unwrap_or('a').is_ascii_digit() {
+                            let resolution = part.split('+').next().unwrap_or("Unknown");
+                            current_display_resolution = Some((resolution.to_string(), i));
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            
+            // Second pass: look for the refresh rate in the following indented lines
+            if let Some((resolution, display_line_idx)) = current_display_resolution {
+                // Look at the lines following the connected display line
+                for line in lines.iter().skip(display_line_idx + 1) {
+                    // Stop if we hit another display or non-indented line
+                    if !line.starts_with("   ") || line.contains(" connected") {
+                        break;
+                    }
+                    
+                    // Look for the line with the current resolution and * marker
+                    if line.contains("*") {
+                        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                        if let Some(line_resolution) = parts.first() {
+                            // Check if this line matches our display resolution
+                            if line_resolution == &resolution {
+                                // Look for refresh rate in the same line
+                                for part in &parts {
+                                    if part.contains("*") {
+                                        let rate_str = part.replace("*", "").replace("+", "");
+                                        if let Ok(rate) = rate_str.parse::<f32>() {
+                                            return format!("{} @ {:.0}Hz", resolution, rate);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                
+                // If no refresh rate found, return just resolution
+                return resolution;
             }
         }
 
@@ -715,8 +759,79 @@ impl SystemInfo {
         if let Some(output) = Self::run_command("wlr-randr", &[]) {
             for line in output.lines() {
                 if line.contains("current") {
-                    if let Some(res) = line.split_whitespace().find(|s| s.contains("x")) {
-                        return res.to_string();
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    let mut resolution = None;
+                    let mut refresh_rate = None;
+                    
+                    for part in &parts {
+                        if part.contains("x") && part.chars().next().unwrap_or('a').is_ascii_digit() {
+                            resolution = Some(part.to_string());
+                        } else if part.ends_with("Hz") {
+                            if let Ok(rate) = part.replace("Hz", "").parse::<f32>() {
+                                refresh_rate = Some(rate);
+                            }
+                        }
+                    }
+                    
+                    if let Some(res) = resolution {
+                        if let Some(rate) = refresh_rate {
+                            return format!("{} @ {:.0}Hz", res, rate);
+                        } else {
+                            return res;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Try swaymsg for Sway/Wayland
+        if let Some(output) = Self::run_command("swaymsg", &["-t", "get_outputs"]) {
+            // This would require JSON parsing, but let's try a simple approach
+            if output.contains("current_mode") {
+                // Look for patterns like "width":3440,"height":1440,"refresh":165000
+                let lines: Vec<&str> = output.lines().collect();
+                for line in lines {
+                    if line.contains("current_mode") {
+                        // Simple regex-like parsing for width, height, refresh
+                        let mut width = None;
+                        let mut height = None;
+                        let mut refresh = None;
+                        
+                        if let Some(w_start) = line.find("\"width\":") {
+                            if let Some(w_end) = line[w_start+8..].find(',') {
+                                if let Ok(w) = line[w_start+8..w_start+8+w_end].parse::<u32>() {
+                                    width = Some(w);
+                                }
+                            }
+                        }
+                        
+                        if let Some(h_start) = line.find("\"height\":") {
+                            if let Some(h_end) = line[h_start+9..].find(',') {
+                                if let Ok(h) = line[h_start+9..h_start+9+h_end].parse::<u32>() {
+                                    height = Some(h);
+                                }
+                            }
+                        }
+                        
+                        if let Some(r_start) = line.find("\"refresh\":") {
+                            if let Some(r_end) = line[r_start+10..].find(',') {
+                                if let Ok(r) = line[r_start+10..r_start+10+r_end].parse::<u32>() {
+                                    refresh = Some(r / 1000); // Convert from mHz to Hz
+                                }
+                            } else if let Some(r_end) = line[r_start+10..].find('}') {
+                                if let Ok(r) = line[r_start+10..r_start+10+r_end].parse::<u32>() {
+                                    refresh = Some(r / 1000); // Convert from mHz to Hz
+                                }
+                            }
+                        }
+                        
+                        if let (Some(w), Some(h)) = (width, height) {
+                            if let Some(r) = refresh {
+                                return format!("{}x{} @ {}Hz", w, h, r);
+                            } else {
+                                return format!("{}x{}", w, h);
+                            }
+                        }
                     }
                 }
             }
