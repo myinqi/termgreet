@@ -222,6 +222,8 @@ impl Display {
             ("theme", "Theme", modules.theme),
             ("icons", "Icons", modules.icons),
             ("terminal", "Terminal", modules.terminal),
+            ("font", "Font", modules.font),
+            ("user", "User", modules.user),
             ("cpu", "CPU", modules.cpu),
             ("gpu", "GPU", modules.gpu),
             ("memory", "Memory", modules.memory),

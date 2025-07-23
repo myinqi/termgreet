@@ -28,6 +28,8 @@ impl SystemInfo {
         // Shell
         data.insert("SHELL".to_string(), Self::get_shell());
         data.insert("TERMINAL".to_string(), Self::get_terminal());
+        data.insert("FONT".to_string(), Self::get_font_info());
+        data.insert("USER".to_string(), Self::get_user_info());
 
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
@@ -251,25 +253,390 @@ impl SystemInfo {
     }
 
     fn get_gpu_info() -> String {
-        // Try lspci first
+        // Try nvidia-smi first for NVIDIA cards (gives cleaner names)
+        if let Some(output) = Self::run_command("nvidia-smi", &["--query-gpu=name", "--format=csv,noheader"]) {
+            if let Some(gpu) = output.lines().next() {
+                let clean_name = gpu.trim();
+                if !clean_name.is_empty() {
+                    return clean_name.to_string();
+                }
+            }
+        }
+
+        // Try lspci as fallback
         if let Some(output) = Self::run_command("lspci", &[]) {
             for line in output.lines() {
                 if line.contains("VGA compatible controller") || line.contains("3D controller") {
                     if let Some(gpu) = line.split(": ").nth(1) {
-                        return gpu.to_string();
+                        return Self::parse_gpu_name(gpu);
                     }
                 }
             }
         }
 
-        // Try nvidia-smi for NVIDIA cards
-        if let Some(output) = Self::run_command("nvidia-smi", &["--query-gpu=name", "--format=csv,noheader"]) {
-            if let Some(gpu) = output.lines().next() {
-                return gpu.trim().to_string();
+        "Unknown GPU".to_string()
+    }
+
+    fn parse_gpu_name(raw_name: &str) -> String {
+        // Parse GPU name to extract cleaner format like Fastfetch
+        // Examples:
+        // "NVIDIA Corporation AD104 [GeForce RTX 4070 SUPER] (rev a1)" -> "NVIDIA GeForce RTX 4070 SUPER"
+        // "Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX 6800 XT" -> "AMD Radeon RX 6800 XT"
+        
+        let mut result = raw_name.to_string();
+        
+        // Handle NVIDIA cards
+        if result.contains("NVIDIA") {
+            // Extract content from brackets [GeForce ...]
+            if let Some(start) = result.find('[') {
+                if let Some(end) = result.find(']') {
+                    let gpu_model = &result[start + 1..end];
+                    return format!("NVIDIA {}", gpu_model);
+                }
+            }
+            // If no brackets, try to clean up the name
+            result = result.replace("NVIDIA Corporation", "NVIDIA");
+        }
+        
+        // Handle AMD cards
+        if result.contains("Advanced Micro Devices") || result.contains("AMD/ATI") {
+            result = result.replace("Advanced Micro Devices, Inc. [AMD/ATI]", "AMD");
+            result = result.replace("Advanced Micro Devices, Inc.", "AMD");
+            result = result.replace("[AMD/ATI]", "AMD");
+        }
+        
+        // Remove revision information (rev a1), (rev 01), etc.
+        if let Some(rev_pos) = result.find(" (rev ") {
+            result = result[..rev_pos].to_string();
+        }
+        
+        // Remove extra whitespace and clean up
+        result = result.trim().to_string();
+        
+        // Remove any remaining brackets or parentheses at the end
+        while result.ends_with(')') || result.ends_with(']') {
+            if let Some(pos) = result.rfind(['(', '[']) {
+                result = result[..pos].trim().to_string();
+            } else {
+                break;
             }
         }
+        
+        result
+    }
 
-        "Unknown GPU".to_string()
+    fn get_font_info() -> String {
+        // Try to get font information from various terminal-specific methods
+        
+        // Debug: Check what terminal we're running in
+        let term_program = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "unknown".to_string());
+        let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".to_string());
+        let terminal_emulator = std::env::var("TERMINAL_EMULATOR").unwrap_or_else(|_| "unknown".to_string());
+        
+        // Try different terminal detection methods
+        
+        // Method 1: Check for Kitty terminal
+        if term_program == "kitty" || std::env::var("KITTY_WINDOW_ID").is_ok() {
+            if let Ok(home) = std::env::var("HOME") {
+                let kitty_config = format!("{}/.config/kitty/kitty.conf", home);
+                if let Ok(content) = std::fs::read_to_string(&kitty_config) {
+                    let mut font_family = None;
+                    let mut font_size = None;
+                    
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("font_family") && !trimmed.starts_with("#") {
+                            let font = line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+                            let font = font.trim();
+                            if !font.is_empty() {
+                                font_family = Some(font.to_string());
+                            }
+                        } else if trimmed.starts_with("font_size") && !trimmed.starts_with("#") {
+                            if let Some(size) = line.split_whitespace().nth(1) {
+                                font_size = Some(size.to_string());
+                            }
+                        }
+                    }
+                    
+                    if let Some(family) = font_family {
+                        if let Some(size) = font_size {
+                            return format!("{} ({}pt)", family, size);
+                        } else {
+                            return family;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Check for Ghostty terminal
+        if term_program == "ghostty" || std::env::var("GHOSTTY_RESOURCES_DIR").is_ok() {
+            if let Ok(home) = std::env::var("HOME") {
+                let ghostty_config = format!("{}/.config/ghostty/config", home);
+                if let Ok(content) = std::fs::read_to_string(&ghostty_config) {
+                    let mut font_family = None;
+                    let mut font_size = None;
+                    
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("font-family") && trimmed.contains('=') {
+                            if let Some(font) = line.split('=').nth(1) {
+                                font_family = Some(font.trim().trim_matches('"').trim_matches('\'').to_string());
+                            }
+                        } else if trimmed.starts_with("font-size") && trimmed.contains('=') {
+                            if let Some(size) = line.split('=').nth(1) {
+                                font_size = Some(size.trim().to_string());
+                            }
+                        }
+                    }
+                    
+                    if let Some(family) = font_family {
+                        if let Some(size) = font_size {
+                            return format!("{} ({}pt)", family, size);
+                        } else {
+                            return family;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 3: Check for VSCode terminal
+        if term_program == "vscode" {
+            if let Ok(home) = std::env::var("HOME") {
+                let vscode_settings = format!("{}/.config/Code/User/settings.json", home);
+                if let Ok(content) = std::fs::read_to_string(&vscode_settings) {
+                    // Look for terminal font settings
+                    for line in content.lines() {
+                        if line.contains("terminal.integrated.fontFamily") {
+                            if let Some(start) = line.find('"') {
+                                if let Some(end) = line.rfind('"') {
+                                    if start < end {
+                                        let font = &line[start+1..end];
+                                        if !font.is_empty() {
+                                            return Self::format_font_with_size(font);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 4: Check for GNOME Terminal
+        if terminal_emulator == "gnome-terminal" || std::env::var("GNOME_TERMINAL_SCREEN").is_ok() || std::env::var("GNOME_TERMINAL_SERVICE").is_ok() {
+            // Try to get the current profile UUID
+            if let Some(profile_output) = Self::run_command("gsettings", &["get", "org.gnome.Terminal.ProfilesList", "default"]) {
+                let profile_uuid = profile_output.trim().trim_matches('\'').trim_matches('"');
+                if !profile_uuid.is_empty() && profile_uuid != "(null)" {
+                    let profile_path = format!("org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:{}/", profile_uuid);
+                    if let Some(font_output) = Self::run_command("gsettings", &["get", &profile_path, "font"]) {
+                        let font = font_output.trim().trim_matches('\'').trim_matches('"');
+                        if !font.is_empty() && font != "(null)" {
+                            return font.to_string();
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: try default profile
+            if let Some(output) = Self::run_command("gsettings", &["get", "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:b1dcc9dd-5262-4d8d-a863-c897e6d979b9/", "font"]) {
+                let font = output.trim().trim_matches('\'').trim_matches('"');
+                if !font.is_empty() && font != "(null)" {
+                    return font.to_string();
+                }
+            }
+        }
+        
+        // Check for GNOME Terminal (dconf/gsettings) - general fallback
+        if let Some(output) = Self::run_command("dconf", &["read", "/org/gnome/terminal/legacy/profiles:/:b1dcc9dd-5262-4d8d-a863-c897e6d979b9/font"]) {
+            let font = output.trim().trim_matches('\'').trim_matches('"');
+            if !font.is_empty() && font != "(null)" {
+                return font.to_string();
+            }
+        }
+        
+        // Try gsettings for GNOME Terminal profile
+        if let Some(output) = Self::run_command("gsettings", &["get", "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:b1dcc9dd-5262-4d8d-a863-c897e6d979b9/", "font"]) {
+            let font = output.trim().trim_matches('\'').trim_matches('"');
+            if !font.is_empty() && font != "(null)" {
+                return font.to_string();
+            }
+        }
+        
+        // Try to get font from terminal-specific configs
+        // Check for Alacritty config (YAML and TOML formats)
+        if let Ok(home) = std::env::var("HOME") {
+            // Try YAML format first
+            let alacritty_config = format!("{}/.config/alacritty/alacritty.yml", home);
+            if let Ok(content) = std::fs::read_to_string(&alacritty_config) {
+                let mut font_family = None;
+                let mut font_size = None;
+                
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("family:") {
+                        if let Some(font) = line.split(':').nth(1) {
+                            font_family = Some(font.trim().trim_matches('"').trim_matches('\'').to_string());
+                        }
+                    } else if trimmed.starts_with("size:") {
+                        if let Some(size) = line.split(':').nth(1) {
+                            font_size = Some(size.trim().to_string());
+                        }
+                    }
+                }
+                
+                if let Some(family) = font_family {
+                    if let Some(size) = font_size {
+                        return format!("{} {}pt", family, size);
+                    } else {
+                        return family;
+                    }
+                }
+            }
+            
+            // Try TOML format
+            let alacritty_toml = format!("{}/.config/alacritty/alacritty.toml", home);
+            if let Ok(content) = std::fs::read_to_string(&alacritty_toml) {
+                // Simple TOML parsing for font settings
+                let mut font_family = None;
+                let mut font_size = None;
+                
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("family") && trimmed.contains('=') {
+                        if let Some(font) = line.split('=').nth(1) {
+                            font_family = Some(font.trim().trim_matches('"').trim_matches('\'').to_string());
+                        }
+                    } else if trimmed.starts_with("size") && trimmed.contains('=') {
+                        if let Some(size) = line.split('=').nth(1) {
+                            font_size = Some(size.trim().to_string());
+                        }
+                    }
+                }
+                
+                if let Some(family) = font_family {
+                    if let Some(size) = font_size {
+                        return format!("{} {}pt", family, size);
+                    } else {
+                        return family;
+                    }
+                }
+            }
+        }
+        
+        // Try to get font from Kitty config
+        if let Ok(home) = std::env::var("HOME") {
+            let kitty_config = format!("{}/.config/kitty/kitty.conf", home);
+            if let Ok(content) = std::fs::read_to_string(&kitty_config) {
+                let mut font_family = None;
+                let mut font_size = None;
+                
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("font_family") {
+                        let font = line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+                        let font = font.trim();
+                        if !font.is_empty() {
+                            font_family = Some(font.to_string());
+                        }
+                    } else if trimmed.starts_with("font_size") {
+                        if let Some(size) = line.split_whitespace().nth(1) {
+                            font_size = Some(size.to_string());
+                        }
+                    }
+                }
+                
+                if let Some(family) = font_family {
+                    if let Some(size) = font_size {
+                        return format!("{} {}pt", family, size);
+                    } else {
+                        return family;
+                    }
+                }
+            }
+        }
+        
+        // Try gsettings for system monospace font as fallback
+        if let Some(output) = Self::run_command("gsettings", &["get", "org.gnome.desktop.interface", "monospace-font-name"]) {
+            let font = output.trim().trim_matches('\'').trim_matches('"');
+            if !font.is_empty() && font != "(null)" {
+                return font.to_string();
+            }
+        }
+        
+        // Fallback: try to detect common monospace fonts
+        if let Some(output) = Self::run_command("fc-match", &["monospace"]) {
+            if let Some(font) = output.split(':').next() {
+                let font = font.trim();
+                if !font.is_empty() {
+                    return Self::format_font_with_size(font);
+                }
+            }
+        }
+        
+        // If we get here, let's provide debug info to help identify the terminal
+        let debug_info = format!("Debug: TERM_PROGRAM={}, TERM={}, TERMINAL_EMULATOR={}", 
+                                term_program, term, terminal_emulator);
+        
+        // Also check for other common terminal environment variables
+        let mut env_vars = Vec::new();
+        if std::env::var("KITTY_WINDOW_ID").is_ok() { env_vars.push("KITTY"); }
+        if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok() { env_vars.push("GHOSTTY"); }
+        if std::env::var("GNOME_TERMINAL_SCREEN").is_ok() { env_vars.push("GNOME_TERMINAL"); }
+        if std::env::var("ALACRITTY_SOCKET").is_ok() { env_vars.push("ALACRITTY"); }
+        if std::env::var("WEZTERM_EXECUTABLE").is_ok() { env_vars.push("WEZTERM"); }
+        
+        if !env_vars.is_empty() {
+            format!("Unknown Font (detected: {})", env_vars.join(", "))
+        } else {
+            "Unknown Font (no terminal detected)".to_string()
+        }
+    }
+    
+    fn format_font_with_size(font: &str) -> String {
+        // Try to extract size information and format nicely
+        if font.contains(" ") {
+            let parts: Vec<&str> = font.split_whitespace().collect();
+            if let Some(last) = parts.last() {
+                // Check if last part is a number (size)
+                if last.parse::<f32>().is_ok() {
+                    let family = parts[..parts.len()-1].join(" ");
+                    return format!("{} ({}pt)", family, last);
+                }
+            }
+        }
+        font.to_string()
+    }
+    
+    fn get_user_info() -> String {
+        // Get current username
+        if let Ok(user) = std::env::var("USER") {
+            if !user.is_empty() {
+                return user;
+            }
+        }
+        
+        // Fallback to whoami command
+        if let Some(output) = Self::run_command("whoami", &[]) {
+            let user = output.trim();
+            if !user.is_empty() {
+                return user.to_string();
+            }
+        }
+        
+        // Last resort: try to get from /etc/passwd
+        if let Ok(uid) = std::env::var("UID") {
+            if let Some(output) = Self::run_command("getent", &["passwd", &uid]) {
+                if let Some(user) = output.split(':').next() {
+                    return user.to_string();
+                }
+            }
+        }
+        
+        "Unknown User".to_string()
     }
 
     fn get_memory_info(sys: &System) -> String {
