@@ -197,8 +197,16 @@ impl Display {
     fn prepare_system_info_lines(&self, system_info: &SystemInfo) -> Vec<String> {
         let modules = &self.config.modules;
         let colors = &self.config.general.colors;
-        let separator = &self.config.general.separator;
+        let separator_config = &self.config.general.separator;
         let mut lines = Vec::new();
+        
+        // Build the complete separator string with configurable spacing
+        let separator = format!(
+            "{}{}{}",
+            " ".repeat(separator_config.space_before as usize),
+            separator_config.symbol,
+            " ".repeat(separator_config.space_after as usize)
+        );
 
         // Define the order and mapping of modules
         let module_order = [
@@ -232,7 +240,7 @@ impl Display {
         let line = format!(
             "{}{}{}",
             self.apply_color(display_name, &colors.title),
-            self.apply_color(separator, &colors.separator),
+            self.apply_color(&separator, &colors.separator),
             self.apply_color(trimmed_value, &colors.info)
         );
         lines.push(line);

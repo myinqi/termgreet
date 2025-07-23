@@ -1,9 +1,15 @@
 # TermGreet Beispiel-Konfiguration
 # Kopieren Sie diese Datei nach ~/.config/termgreet/config.toml und passen Sie sie an
 
+# General settings
 [general]
 title = "System Information"
-separator = " -> "
+
+# Separator configuration between module names and values
+[general.separator]
+symbol = "->"        # The separator character/string (e.g., "->", ":", "=", "|")
+space_before = 1     # Number of spaces before the separator
+space_after = 1      # Number of spaces after the separator
 
 [general.colors]
 title = "bright_cyan"

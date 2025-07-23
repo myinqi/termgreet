@@ -15,8 +15,15 @@ pub struct Config {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GeneralConfig {
     pub title: Option<String>,
-    pub separator: String,
+    pub separator: SeparatorConfig,
     pub colors: ColorsConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SeparatorConfig {
+    pub symbol: String,
+    pub space_before: u8,
+    pub space_after: u8,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -78,7 +85,11 @@ impl Default for Config {
         Self {
             general: GeneralConfig {
                 title: Some("System Information".to_string()),
-                separator: " -> ".to_string(),
+                separator: SeparatorConfig {
+                    symbol: "->".to_string(),
+                    space_before: 1,
+                    space_after: 1,
+                },
                 colors: ColorsConfig {
                     title: "bright_cyan".to_string(),
                     info: "bright_white".to_string(),
