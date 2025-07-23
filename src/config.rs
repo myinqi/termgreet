@@ -42,6 +42,8 @@ pub struct DisplayConfig {
     pub image_size: ImageSize,
     pub prefer_kitty_graphics: bool,
     pub padding: u8,
+    pub layout: String,
+    pub horizontal_kitty_graphics: bool, // If true, use Kitty graphics in horizontal layout (modules below image); if false, use side-by-side block rendering
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -119,6 +121,8 @@ impl Default for Config {
                 },
                 prefer_kitty_graphics: true,
                 padding: 2,
+                layout: "vertical".to_string(),
+                horizontal_kitty_graphics: true, // Default: prefer Kitty graphics quality even in horizontal layout
             },
             modules: ModulesConfig {
                 show_versions: true,

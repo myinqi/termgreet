@@ -35,7 +35,15 @@ impl Display {
         if self.show_images && self.config.display.show_image {
             if let Some(ref image_path) = self.config.display.image_path {
                 if image_path.exists() {
-                    self.show_image_with_info(image_path, &info_lines)?;
+                    // Check layout configuration
+                    match self.config.display.layout.as_str() {
+                        "horizontal" => {
+                            self.show_horizontal_layout(image_path, &info_lines)?;
+                        },
+                        _ => { // "vertical" or any other value defaults to vertical
+                            self.show_image_with_info(image_path, &info_lines)?;
+                        }
+                    }
                     self.show_motd_if_enabled()?;
                     return Ok(());
                 }
@@ -47,6 +55,114 @@ impl Display {
         self.show_motd_if_enabled()?;
         
         Ok(())
+    }
+
+    fn is_kitty_terminal(&self) -> bool {
+        // Check if we're in a terminal that supports Kitty graphics protocol
+        std::env::var("TERM").unwrap_or_default().contains("kitty") ||
+        std::env::var("TERM_PROGRAM").unwrap_or_default().contains("ghostty") ||
+        std::env::var("TERM_PROGRAM").unwrap_or_default().contains("iTerm")
+    }
+    
+    fn render_image_as_text_blocks(&self, image_path: &std::path::PathBuf) -> Result<Vec<String>> {
+        // Calculate effective dimensions with cell size adjustments
+        let mut effective_width = self.config.display.image_size.width;
+        let mut effective_height = self.config.display.image_size.height;
+        
+        // Apply cell size adjustments (same logic as in render_image_to_terminal)
+        if self.config.display.image_size.cell_width > 20 {
+            effective_width /= 2;
+        }
+        if self.config.display.image_size.cell_height < 15 {
+            effective_height /= 2;
+        }
+        
+        let mut output_lines = Vec::new();
+        
+        // Try to load and process the image
+        match image::open(image_path) {
+            Ok(img) => {
+                // Resize the image to fit our dimensions
+                let resized = img.resize_exact(
+                    effective_width * 2, // Each character represents 2 pixels horizontally
+                    effective_height,     // Each character represents 1 pixel vertically
+                    image::imageops::FilterType::Lanczos3
+                );
+                
+                // Convert to RGB for easier processing
+                let rgb_img = resized.to_rgb8();
+                let (img_width, img_height) = rgb_img.dimensions();
+                
+                // Convert image to block characters
+                for y in 0..effective_height as u32 {
+                    let mut line = String::new();
+                    
+                    for x in 0..effective_width as u32 {
+                        // Sample 2x1 pixel area for each character
+                        let px1_x = (x * 2).min(img_width - 1);
+                        let px2_x = (x * 2 + 1).min(img_width - 1);
+                        let py = y.min(img_height - 1);
+                        
+                        let pixel1 = rgb_img.get_pixel(px1_x, py);
+                        let pixel2 = rgb_img.get_pixel(px2_x, py);
+                        
+                        // Calculate brightness for each pixel
+                        let brightness1 = (pixel1[0] as f32 * 0.299 + pixel1[1] as f32 * 0.587 + pixel1[2] as f32 * 0.114) / 255.0;
+                        let brightness2 = (pixel2[0] as f32 * 0.299 + pixel2[1] as f32 * 0.587 + pixel2[2] as f32 * 0.114) / 255.0;
+                        
+                        // Choose appropriate block character based on brightness
+                        let avg_brightness = (brightness1 + brightness2) / 2.0;
+                        let block_char = if avg_brightness > 0.8 {
+                            "█"  // Full block for bright areas
+                        } else if avg_brightness > 0.6 {
+                            "▓"  // Dark shade
+                        } else if avg_brightness > 0.4 {
+                            "▒"  // Medium shade
+                        } else if avg_brightness > 0.2 {
+                            "░"  // Light shade
+                        } else {
+                            " "  // Space for dark areas
+                        };
+                        
+                        line.push_str(block_char);
+                    }
+                    
+                    output_lines.push(line);
+                }
+            },
+            Err(_) => {
+                // If image loading fails, create placeholder lines
+                for _ in 0..effective_height as usize {
+                    output_lines.push(" ".repeat(effective_width as usize));
+                }
+            }
+        }
+        
+        // Ensure we have the right number of lines
+        while output_lines.len() < effective_height as usize {
+            output_lines.push(" ".repeat(effective_width as usize));
+        }
+        output_lines.truncate(effective_height as usize);
+        
+        Ok(output_lines)
+    }
+    
+    fn get_visible_width(&self, text: &str) -> usize {
+        // Calculate visible width of text, ignoring ANSI escape codes
+        let mut width = 0;
+        let mut in_escape = false;
+        
+        for ch in text.chars() {
+            if ch == '\x1b' {
+                in_escape = true;
+            } else if in_escape && ch == 'm' {
+                in_escape = false;
+            } else if !in_escape {
+                width += 1;
+            }
+        }
+        
+        width
     }
 
     fn show_motd_if_enabled(&self) -> Result<()> {
@@ -179,9 +295,70 @@ impl Display {
         
         Ok(())
     }
-    
 
-    
+    fn show_horizontal_layout(&self, image_path: &std::path::PathBuf, info_lines: &[String]) -> Result<()> {
+        // Get terminal dimensions
+        let _term_width = 120; // Conservative estimate for wide terminals
+        let image_width = self.config.display.image_size.width as usize;
+        let padding = self.config.display.padding as usize;
+        
+        // Check user preference for horizontal layout rendering
+        if self.config.display.horizontal_kitty_graphics && 
+           self.config.display.prefer_kitty_graphics && 
+           self.is_kitty_terminal() {
+            // User prefers Kitty Graphics quality even in horizontal layout
+            // This means modules will appear below the image (not true side-by-side)
+            self.render_image_to_terminal(image_path)?;
+            
+            // Add spacing after image
+            println!();
+            
+            // Show system info below image
+            for line in info_lines {
+                println!("{}", line);
+            }
+        } else {
+            // Use block-based rendering for true side-by-side layout
+            // This works in all terminals, including Kitty/Ghostty
+            // First, render image to memory as text blocks
+            let image_lines = self.render_image_as_text_blocks(image_path)?;
+            
+            // Calculate layout dimensions
+            let _info_start_col = image_width + padding * 2;
+            let max_lines = std::cmp::max(image_lines.len(), info_lines.len());
+            
+            // Print side-by-side layout
+            for i in 0..max_lines {
+                let mut line_output = String::new();
+                
+                // Add image part (left side)
+                if i < image_lines.len() {
+                    line_output.push_str(&image_lines[i]);
+                    // Pad to ensure consistent spacing
+                    let visible_width = self.get_visible_width(&image_lines[i]);
+                    if visible_width < image_width {
+                        line_output.push_str(&" ".repeat(image_width - visible_width));
+                    }
+                } else {
+                    // Empty space where image would be
+                    line_output.push_str(&" ".repeat(image_width));
+                }
+                
+                // Add padding between image and info
+                line_output.push_str(&" ".repeat(padding));
+                
+                // Add info part (right side)
+                if i < info_lines.len() {
+                    line_output.push_str(&info_lines[i]);
+                }
+                
+                println!("{}", line_output);
+            }
+        }
+        
+        Ok(())
+    }
+
     fn show_info_only(&self, info_lines: &[String]) {
         // Display system information in a clean single column
         for line in info_lines.iter() {
