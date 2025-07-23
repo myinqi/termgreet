@@ -65,18 +65,14 @@ impl Display {
     }
     
     fn render_image_as_text_blocks(&self, image_path: &std::path::PathBuf) -> Result<Vec<String>> {
-        // Calculate effective dimensions with cell size adjustments
-        let mut effective_width = self.config.display.image_size.width;
-        let mut effective_height = self.config.display.image_size.height;
+        // Calculate effective dimensions with cell size adjustments (same as render_image_to_terminal)
+        let width = self.config.display.image_size.width;
+        let height = self.config.display.image_size.height;
+        let cell_width = self.config.display.image_size.cell_width;
+        let cell_height = self.config.display.image_size.cell_height;
         
-        // Apply cell size adjustments (same logic as in render_image_to_terminal)
-        if self.config.display.image_size.cell_width > 20 {
-            effective_width /= 2;
-        }
-        if self.config.display.image_size.cell_height < 15 {
-            effective_height /= 2;
-        }
-        
+        let effective_width = if cell_width > 20 { width / 2 } else { width };
+        let effective_height = if cell_height < 15 { height / 2 } else { height };
         let mut output_lines = Vec::new();
         
         // Try to load and process the image
@@ -93,7 +89,7 @@ impl Display {
                 let rgb_img = resized.to_rgb8();
                 let (img_width, img_height) = rgb_img.dimensions();
                 
-                // Convert image to block characters
+                // Convert image to colored block characters
                 for y in 0..effective_height as u32 {
                     let mut line = String::new();
                     
@@ -106,27 +102,39 @@ impl Display {
                         let pixel1 = rgb_img.get_pixel(px1_x, py);
                         let pixel2 = rgb_img.get_pixel(px2_x, py);
                         
-                        // Calculate brightness for each pixel
-                        let brightness1 = (pixel1[0] as f32 * 0.299 + pixel1[1] as f32 * 0.587 + pixel1[2] as f32 * 0.114) / 255.0;
-                        let brightness2 = (pixel2[0] as f32 * 0.299 + pixel2[1] as f32 * 0.587 + pixel2[2] as f32 * 0.114) / 255.0;
+                        // Use the dominant color for the character
+                        let avg_r = (pixel1[0] as u16 + pixel2[0] as u16) / 2;
+                        let avg_g = (pixel1[1] as u16 + pixel2[1] as u16) / 2;
+                        let avg_b = (pixel1[2] as u16 + pixel2[2] as u16) / 2;
+                        
+                        // Calculate brightness for block character selection
+                        let brightness = (avg_r as f32 * 0.299 + avg_g as f32 * 0.587 + avg_b as f32 * 0.114) / 255.0;
                         
                         // Choose appropriate block character based on brightness
-                        let avg_brightness = (brightness1 + brightness2) / 2.0;
-                        let block_char = if avg_brightness > 0.8 {
+                        let block_char = if brightness > 0.8 {
                             "█"  // Full block for bright areas
-                        } else if avg_brightness > 0.6 {
+                        } else if brightness > 0.6 {
                             "▓"  // Dark shade
-                        } else if avg_brightness > 0.4 {
+                        } else if brightness > 0.4 {
                             "▒"  // Medium shade
-                        } else if avg_brightness > 0.2 {
+                        } else if brightness > 0.2 {
                             "░"  // Light shade
                         } else {
                             " "  // Space for dark areas
                         };
                         
-                        line.push_str(block_char);
+                        // Add color using ANSI escape codes for truecolor
+                        if block_char != " " {
+                            line.push_str(&format!("\x1b[38;2;{};{};{}m{}", avg_r, avg_g, avg_b, block_char));
+                        } else {
+                            line.push_str(block_char);
+                        }
                     }
                     
+                    // Reset color at end of line
+                    if !line.is_empty() {
+                        line.push_str("\x1b[0m");
+                    }
                     output_lines.push(line);
                 }
             },
@@ -260,32 +268,29 @@ impl Display {
     }
     
     fn show_image_with_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
-        // This is the tricky part: we need to render the image and position text beside it
-        // Terminal image rendering makes this challenging, but we'll try a hybrid approach
+        // For consistency, use the same rendering approach as horizontal layout
+        // but display image above info instead of side-by-side
         
-        let _image_height = self.config.display.image_size.height as usize;
-        let _image_width = self.config.display.image_size.width as usize;
-        
-        // First, try to render the image
-        match self.render_image_to_terminal(image_path) {
-            Ok(_) => {
-                // Image rendered successfully
-                // Now we need to position the cursor back up to add text beside it
-                // This is a limitation of terminal graphics - we'll show info below for now
-                // but with better formatting
-                
-                println!(); // Add spacing after image
-                
-                // Show system info in a clean single column below the image
-                for line in info_lines.iter() {
-                    println!("{}", line);
+        // Try Kitty Graphics Protocol if preferred and supported
+        if self.config.display.prefer_kitty_graphics && self.is_kitty_terminal() {
+            match self.render_image_to_terminal(image_path) {
+                Ok(_) => {
+                    println!(); // Add spacing after image
+                    
+                    // Show system info below the image
+                    for line in info_lines.iter() {
+                        println!("{}", line);
+                    }
+                }
+                Err(_) => {
+                    // Failed to render Kitty graphics, fall back to block rendering
+                    eprintln!("[Warning] Kitty Graphics failed, falling back to block rendering");
+                    self.render_vertical_with_blocks(image_path, info_lines)?;
                 }
             }
-            Err(_) => {
-                // Failed to render image, show info only
-                eprintln!("[Warning] Image rendering failed, showing system info only");
-                self.show_info_only(info_lines);
-            }
+        } else {
+            // Use consistent block-based rendering (same as horizontal layout)
+            self.render_vertical_with_blocks(image_path, info_lines)?;
         }
         
         // Add padding
@@ -502,5 +507,25 @@ impl Display {
             "bright_white" => colored.bright_white(),
             _ => colored, // Default: no color
         }
+    }
+    
+    fn render_vertical_with_blocks(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
+        // Use the same block rendering as horizontal layout for consistency
+        let image_path_buf = image_path.to_path_buf();
+        let image_lines = self.render_image_as_text_blocks(&image_path_buf)?;
+        
+        // Print image above info (vertical layout)
+        for line in image_lines {
+            println!("{}", line);
+        }
+        
+        println!(); // Add spacing between image and info
+        
+        // Print system info below the image
+        for line in info_lines {
+            println!("{}", line);
+        }
+        
+        Ok(())
     }
 }
