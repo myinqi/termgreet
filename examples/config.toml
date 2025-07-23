@@ -49,6 +49,8 @@ cell_width = 17     # Pixels per terminal character (width)
 cell_height = 24    # Pixels per terminal character (height)
 
 [modules]
+show_versions = true  # Show version information for Shell, Terminal, DE, WM modules
+user_at_host = true
 os = true
 kernel = true
 uptime = true
@@ -62,8 +64,8 @@ theme = false
 icons = false
 terminal = true
 font = true
-user = true
-hostname = true
+user = false
+hostname = false
 cpu = true
 gpu = true
 gpu_driver = true
@@ -71,7 +73,6 @@ memory = true
 disk = true
 battery = true
 locale = false
-show_versions = true  # Show version information for Shell, Terminal, DE, WM modules
 
 # Enable or disable MOTD display
 show_motd = true

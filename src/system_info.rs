@@ -36,6 +36,7 @@ impl SystemInfo {
         data.insert("FONT".to_string(), Self::get_font_info());
         data.insert("USER".to_string(), Self::get_user_info());
         data.insert("HOSTNAME".to_string(), Self::get_hostname_info());
+        data.insert("USER_AT_HOST".to_string(), Self::get_user_at_host_info());
 
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
@@ -862,7 +863,13 @@ impl SystemInfo {
         
         "Unknown Hostname".to_string()
     }
-    
+
+    fn get_user_at_host_info() -> String {
+        let user = Self::get_user_info();
+        let hostname = Self::get_hostname_info();
+        format!("{}@{}", user, hostname)
+    }
+
     fn get_gpu_driver_info() -> String {
         // Try to detect GPU driver from various sources
         

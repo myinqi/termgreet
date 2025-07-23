@@ -297,7 +297,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | GPU Driver Detection | ✅ | ✅ | ❌ |
 | Refresh Rate Display | ✅ | ✅ | ❌ |
 | Font Detection | ✅ | ✅ | ❌ |
-| Configurable Separators | ✅ | ❌ | ❌ |
+| Configurable Separators | ✅ | ✅ | ❌ |
 | Speed | ⚡ | ⚡⚡ | 🐌 |
 | Customizability | ✅ | ✅ | ✅ |
 | Written in Rust | ✅ | ❌ | ❌ |

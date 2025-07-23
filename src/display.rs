@@ -210,6 +210,7 @@ impl Display {
 
         // Define the order and mapping of modules
         let module_order = [
+            ("user_at_host", "Login", modules.user_at_host),
             ("os", "OS", modules.os),
             ("kernel", "Kernel", modules.kernel),
             ("uptime", "Uptime", modules.uptime),
