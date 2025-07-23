@@ -137,10 +137,11 @@ messages = [
 - **kernel**: Kernel version
 - **uptime**: System uptime
 - **os_age**: Days since OS installation
-- **packages**: Number of installed packages
+- **packages**: Number of installed packages (pacman, apt, dnf, flatpak...)
 - **locale**: System locale
 
 ### Environment
+- **user_at_host**: Current username and hostname (e.g., `khrom@workstation`)
 - **shell**: Shell with version (e.g., `zsh 5.9`)
 - **terminal**: Terminal emulator with version (e.g., `ghostty 1.0.0`)
 - **font**: Terminal font with size (e.g., `JetBrainsMono Nerd Font (13pt)`)

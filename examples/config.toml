@@ -56,10 +56,12 @@ kernel = true
 uptime = true
 os_age = true
 packages = true
+flatpak_packages = false
+packages_combined = false
 shell = true
 resolution = true
-de = true
-wm = true
+de = false
+wm = false
 theme = false
 icons = false
 terminal = true
@@ -71,7 +73,7 @@ gpu = true
 gpu_driver = true
 memory = true
 disk = true
-battery = true
+battery = false
 locale = false
 
 # Enable or disable MOTD display

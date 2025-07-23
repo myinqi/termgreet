@@ -62,6 +62,16 @@ impl SystemInfo {
             data.insert("PACKAGES".to_string(), packages);
         }
 
+        // Flatpak packages (if available)
+        if let Some(flatpak_packages) = Self::get_flatpak_packages() {
+            data.insert("FLATPAK_PACKAGES".to_string(), flatpak_packages);
+        }
+
+        // Combined packages (main + flatpak)
+        if let Some(combined_packages) = Self::get_combined_packages() {
+            data.insert("PACKAGES_COMBINED".to_string(), combined_packages);
+        }
+
         // Locale
         data.insert("LOCALE".to_string(), Self::get_locale());
 
@@ -1207,6 +1217,37 @@ impl SystemInfo {
         }
 
         None
+    }
+
+    fn get_flatpak_packages() -> Option<String> {
+        // Check if flatpak is installed and get package count
+        if let Some(output) = Self::run_command("flatpak", &["list", "--app"]) {
+            let count = output.lines().filter(|line| !line.trim().is_empty()).count();
+            if count > 0 {
+                return Some(format!("{} (flatpak)", count));
+            }
+        }
+        None
+    }
+
+    fn get_combined_packages() -> Option<String> {
+        let mut package_parts = Vec::new();
+        
+        // Get main package manager count
+        if let Some(packages) = Self::get_package_count() {
+            package_parts.push(packages);
+        }
+        
+        // Get flatpak count
+        if let Some(flatpak) = Self::get_flatpak_packages() {
+            package_parts.push(flatpak);
+        }
+        
+        if !package_parts.is_empty() {
+            Some(package_parts.join(", "))
+        } else {
+            None
+        }
     }
 
     fn get_locale() -> String {

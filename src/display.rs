@@ -216,6 +216,8 @@ impl Display {
             ("uptime", "Uptime", modules.uptime),
             ("os_age", "OS Age", modules.os_age),
             ("packages", "Packages", modules.packages),
+            ("flatpak_packages", "Flatpak", modules.flatpak_packages),
+            ("packages_combined", "Packages", modules.packages_combined),
             ("shell", "Shell", modules.shell),
             ("resolution", "Resolution", modules.resolution),
             ("de", "DE", modules.de),
