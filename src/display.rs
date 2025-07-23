@@ -73,6 +73,9 @@ impl Display {
         
         let effective_width = if cell_width > 20 { width / 2 } else { width };
         let effective_height = if cell_height < 15 { height / 2 } else { height };
+        
+        // Get block rendering configuration
+        let block_config = &self.config.display.block_rendering;
         let mut output_lines = Vec::new();
         
         // Try to load and process the image
@@ -94,45 +97,29 @@ impl Display {
                     let mut line = String::new();
                     
                     for x in 0..effective_width as u32 {
-                        // Sample 2x1 pixel area for each character
-                        let px1_x = (x * 2).min(img_width - 1);
-                        let px2_x = (x * 2 + 1).min(img_width - 1);
-                        let py = y.min(img_height - 1);
+                        // Sample pixels based on sampling method
+                        let (avg_r, avg_g, avg_b, brightness) = self.sample_pixels(
+                            &rgb_img, x, y, img_width, img_height, block_config
+                        );
                         
-                        let pixel1 = rgb_img.get_pixel(px1_x, py);
-                        let pixel2 = rgb_img.get_pixel(px2_x, py);
+                        // Apply brightness boost and contrast
+                        let adjusted_brightness = self.adjust_brightness_contrast(
+                            brightness, block_config.brightness_boost, block_config.contrast
+                        );
                         
-                        // Use the dominant color for the character
-                        let avg_r = (pixel1[0] as u16 + pixel2[0] as u16) / 2;
-                        let avg_g = (pixel1[1] as u16 + pixel2[1] as u16) / 2;
-                        let avg_b = (pixel1[2] as u16 + pixel2[2] as u16) / 2;
+                        // Choose appropriate block character based on brightness and style
+                        let block_char = self.select_block_character(adjusted_brightness, block_config);
                         
-                        // Calculate brightness for block character selection
-                        let brightness = (avg_r as f32 * 0.299 + avg_g as f32 * 0.587 + avg_b as f32 * 0.114) / 255.0;
+                        // Apply color based on color mode
+                        let colored_char = self.apply_color_mode(
+                            &block_char, avg_r, avg_g, avg_b, block_config
+                        );
                         
-                        // Choose appropriate block character based on brightness
-                        let block_char = if brightness > 0.8 {
-                            "█"  // Full block for bright areas
-                        } else if brightness > 0.6 {
-                            "▓"  // Dark shade
-                        } else if brightness > 0.4 {
-                            "▒"  // Medium shade
-                        } else if brightness > 0.2 {
-                            "░"  // Light shade
-                        } else {
-                            " "  // Space for dark areas
-                        };
-                        
-                        // Add color using ANSI escape codes for truecolor
-                        if block_char != " " {
-                            line.push_str(&format!("\x1b[38;2;{};{};{}m{}", avg_r, avg_g, avg_b, block_char));
-                        } else {
-                            line.push_str(block_char);
-                        }
+                        line.push_str(&colored_char);
                     }
                     
-                    // Reset color at end of line
-                    if !line.is_empty() {
+                    // Reset color at end of line if needed
+                    if block_config.color_mode != "monochrome" && !line.is_empty() {
                         line.push_str("\x1b[0m");
                     }
                     output_lines.push(line);
@@ -527,5 +514,172 @@ impl Display {
         }
         
         Ok(())
+    }
+    
+    // Helper methods for configurable block rendering
+    
+    fn sample_pixels(
+        &self,
+        rgb_img: &image::RgbImage,
+        x: u32,
+        y: u32,
+        img_width: u32,
+        img_height: u32,
+        block_config: &crate::config::BlockRenderingConfig,
+    ) -> (u16, u16, u16, f32) {
+        let px1_x = (x * 2).min(img_width - 1);
+        let px2_x = (x * 2 + 1).min(img_width - 1);
+        let py = y.min(img_height - 1);
+        
+        let pixel1 = rgb_img.get_pixel(px1_x, py);
+        let pixel2 = rgb_img.get_pixel(px2_x, py);
+        
+        let (avg_r, avg_g, avg_b) = match block_config.sampling_method.as_str() {
+            "dominant" => {
+                // Use the brighter pixel as dominant
+                let brightness1 = (pixel1[0] as f32 * 0.299 + pixel1[1] as f32 * 0.587 + pixel1[2] as f32 * 0.114) / 255.0;
+                let brightness2 = (pixel2[0] as f32 * 0.299 + pixel2[1] as f32 * 0.587 + pixel2[2] as f32 * 0.114) / 255.0;
+                
+                if brightness1 > brightness2 {
+                    (pixel1[0] as u16, pixel1[1] as u16, pixel1[2] as u16)
+                } else {
+                    (pixel2[0] as u16, pixel2[1] as u16, pixel2[2] as u16)
+                }
+            },
+            "weighted" => {
+                // Weight by distance from center
+                let weight1 = 0.6; // Left pixel gets more weight
+                let weight2 = 0.4; // Right pixel gets less weight
+                
+                let r = (pixel1[0] as f32 * weight1 + pixel2[0] as f32 * weight2) as u16;
+                let g = (pixel1[1] as f32 * weight1 + pixel2[1] as f32 * weight2) as u16;
+                let b = (pixel1[2] as f32 * weight1 + pixel2[2] as f32 * weight2) as u16;
+                
+                (r, g, b)
+            },
+            _ => {
+                // Default: "average"
+                let r = (pixel1[0] as u16 + pixel2[0] as u16) / 2;
+                let g = (pixel1[1] as u16 + pixel2[1] as u16) / 2;
+                let b = (pixel1[2] as u16 + pixel2[2] as u16) / 2;
+                
+                (r, g, b)
+            }
+        };
+        
+        // Calculate brightness
+        let brightness = (avg_r as f32 * 0.299 + avg_g as f32 * 0.587 + avg_b as f32 * 0.114) / 255.0;
+        
+        (avg_r, avg_g, avg_b, brightness)
+    }
+    
+    fn adjust_brightness_contrast(&self, brightness: f32, brightness_boost: f32, contrast: f32) -> f32 {
+        // Apply brightness boost
+        let boosted = (brightness + brightness_boost).clamp(0.0, 1.0);
+        
+        // Apply contrast adjustment
+        let contrasted = ((boosted - 0.5) * contrast + 0.5).clamp(0.0, 1.0);
+        
+        contrasted
+    }
+    
+    fn select_block_character(&self, brightness: f32, block_config: &crate::config::BlockRenderingConfig) -> String {
+        let blocks = match block_config.block_style.as_str() {
+            "ascii" => vec!["#", "*", ":", ".", " "],
+            "braille" => vec!["☣", "☢", "☖", "☄", " "],
+            "custom" => {
+                if block_config.custom_blocks.is_empty() {
+                    vec!["█", "▓", "▒", "░", " "]
+                } else {
+                    block_config.custom_blocks.iter().map(|s| s.as_str()).collect()
+                }
+            },
+            _ => vec!["█", "▓", "▒", "░", " "], // Default
+        };
+        
+        // Use brightness thresholds to select block character
+        let thresholds = &block_config.brightness_thresholds;
+        
+        for (i, &threshold) in thresholds.iter().enumerate() {
+            if brightness > threshold {
+                return blocks.get(i).unwrap_or(&" ").to_string();
+            }
+        }
+        
+        // Return the last (darkest) block character
+        blocks.last().unwrap_or(&" ").to_string()
+    }
+    
+    fn apply_color_mode(
+        &self,
+        block_char: &str,
+        r: u16,
+        g: u16,
+        b: u16,
+        block_config: &crate::config::BlockRenderingConfig,
+    ) -> String {
+        if block_char == " " {
+            return block_char.to_string();
+        }
+        
+        match block_config.color_mode.as_str() {
+            "monochrome" => block_char.to_string(),
+            "16color" => {
+                // Convert to nearest 16-color ANSI code
+                let ansi_code = self.rgb_to_ansi16(r as u8, g as u8, b as u8);
+                format!("\x1b[{}m{}", ansi_code, block_char)
+            },
+            "256color" => {
+                // Convert to 256-color ANSI code
+                let ansi_code = self.rgb_to_ansi256(r as u8, g as u8, b as u8);
+                format!("\x1b[38;5;{}m{}", ansi_code, block_char)
+            },
+            _ => {
+                // Default: "truecolor"
+                format!("\x1b[38;2;{};{};{}m{}", r, g, b, block_char)
+            }
+        }
+    }
+    
+    fn rgb_to_ansi16(&self, r: u8, g: u8, b: u8) -> u8 {
+        // Simple conversion to 16-color ANSI
+        let r_bright = r > 127;
+        let g_bright = g > 127;
+        let b_bright = b > 127;
+        
+        let mut code = 30; // Base foreground color code
+        
+        if r_bright { code += 1; }
+        if g_bright { code += 2; }
+        if b_bright { code += 4; }
+        
+        // If it's a bright color, add 60 to get bright variants
+        if r > 191 || g > 191 || b > 191 {
+            code += 60;
+        }
+        
+        code
+    }
+    
+    fn rgb_to_ansi256(&self, r: u8, g: u8, b: u8) -> u8 {
+        // Convert RGB to 256-color palette
+        // This is a simplified conversion
+        if r == g && g == b {
+            // Grayscale
+            if r < 8 {
+                16
+            } else if r > 248 {
+                231
+            } else {
+                (((r as u16 - 8) * 24) / 240) as u8 + 232
+            }
+        } else {
+            // Color cube: 16 + 36*r + 6*g + b
+            let r_idx = (r as u16 * 5 / 255) as u8;
+            let g_idx = (g as u16 * 5 / 255) as u8;
+            let b_idx = (b as u16 * 5 / 255) as u8;
+            
+            16 + 36 * r_idx + 6 * g_idx + b_idx
+        }
     }
 }

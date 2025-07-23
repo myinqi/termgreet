@@ -39,15 +39,25 @@ separator = "bright_blue" # Color for the separator between module and value
 [display]
 show_image = true
 image_path = "~/Pictures/khrom_small.png"  # Path to your PNG image
-prefer_kitty_graphics = true  # true = prefer Kitty Protocol, false = force viuer fallback
+prefer_kitty_graphics = true  # true = prefer Kitty Protocol, false = force block-rendering fallback
 padding = 2
 layout = "vertical"  # "vertical" or "horizontal"
 
 [display.image_size]
 width = 35
 height = 15
-cell_width = 17     # Pixels per terminal character (width)
-cell_height = 24    # Pixels per terminal character (height)
+cell_width = 17   # Pixels per terminal character (width) - adjust for perfect aspect ratio
+cell_height = 24  # Pixels per terminal character (height) - adjust for perfect aspect ratio
+
+[display.block_rendering]                      # use this if kitty_graphics is false
+block_style = "default"                        # Block character style: "default", "ascii", "braille", "custom"
+custom_blocks = ["█", "▓", "▒", "░", " "]      # Custom block characters (used when block_style = "custom")
+brightness_thresholds = [0.8, 0.6, 0.3, 0.1]   # Brightness thresholds for block selection (0.0-1.0)
+color_mode = "truecolor"                       # Color mode: "truecolor", "256color", "16color", "monochrome"
+contrast = 1.0                                 # Contrast adjustment (0.5-2.0)
+brightness_boost = 0.0                         # Brightness boost (-0.5 to +0.5)
+sampling_method = "dominant"                   # Sampling method: "average", "dominant", "weighted"
+enable_dithering = true                        # Enable dithering for better quality
 
 [modules]
 show_versions = true  # Show version information for Shell, Terminal, DE, WM modules

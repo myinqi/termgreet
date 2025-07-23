@@ -43,6 +43,19 @@ pub struct DisplayConfig {
     pub prefer_kitty_graphics: bool,
     pub padding: u8,
     pub layout: String,
+    pub block_rendering: BlockRenderingConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BlockRenderingConfig {
+    pub block_style: String,           // "default", "ascii", "braille", "custom"
+    pub custom_blocks: Vec<String>,    // Custom block characters (used when block_style = "custom")
+    pub brightness_thresholds: Vec<f32>, // Brightness thresholds for block selection (0.0-1.0)
+    pub color_mode: String,            // "truecolor", "256color", "16color", "monochrome"
+    pub contrast: f32,                 // Contrast adjustment (0.5-2.0)
+    pub brightness_boost: f32,         // Brightness boost (-0.5 to +0.5)
+    pub sampling_method: String,       // "average", "dominant", "weighted"
+    pub enable_dithering: bool,        // Enable dithering for better quality
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -121,6 +134,16 @@ impl Default for Config {
                 prefer_kitty_graphics: true,
                 padding: 2,
                 layout: "vertical".to_string(),
+                block_rendering: BlockRenderingConfig {
+                    block_style: "default".to_string(),
+                    custom_blocks: vec!["█".to_string(), "▓".to_string(), "▒".to_string(), "░".to_string(), " ".to_string()],
+                    brightness_thresholds: vec![0.8, 0.6, 0.4, 0.2], 
+                    color_mode: "truecolor".to_string(),
+                    contrast: 1.0,
+                    brightness_boost: 0.0,
+                    sampling_method: "average".to_string(),
+                    enable_dithering: false,
+                },
             },
             modules: ModulesConfig {
                 show_versions: true,
