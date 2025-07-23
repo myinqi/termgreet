@@ -469,6 +469,16 @@ impl SystemInfo {
             if let Some(gpu) = output.lines().next() {
                 let clean_name = gpu.trim();
                 if !clean_name.is_empty() {
+                    // Try to get VRAM size for NVIDIA GPUs
+                    if let Some(vram_output) = Self::run_command("nvidia-smi", &["--query-gpu=memory.total", "--format=csv,noheader,nounits"]) {
+                        if let Some(vram_mb) = vram_output.lines().next() {
+                            if let Ok(vram_mb_num) = vram_mb.trim().parse::<u32>() {
+                                let vram_gb = vram_mb_num as f64 / 1024.0;
+                                return format!("{} ({:.1}GB)", clean_name, vram_gb);
+                            }
+                        }
+                    }
+                    // Fallback to name only if VRAM query fails
                     return clean_name.to_string();
                 }
             }
