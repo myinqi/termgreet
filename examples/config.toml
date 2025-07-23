@@ -1,5 +1,5 @@
-# TermGreet Beispiel-Konfiguration
-# Kopieren Sie diese Datei nach ~/.config/termgreet/config.toml und passen Sie sie an
+# TermGreet Example Configuration
+# Copy this file to ~/.config/termgreet/config.toml and modify it as needed
 
 # General settings
 [general]
@@ -12,6 +12,7 @@ space_before = 2     # Number of spaces before the separator
 space_after = 6     # Number of spaces after the separator
 align_separator = true  # Align all separators in a column by padding module names
 
+# Color configuration
 [general.colors]
 # Available colors:
 #  "black"
@@ -37,15 +38,15 @@ separator = "bright_blue" # Color for the separator between module and value
 
 [display]
 show_image = true
-image_path = "~/Bilder/khrom_small.png"  # Pfad zu Ihrem PNG-Bild
-prefer_kitty_graphics = true  # true = Kitty Protocol bevorzugt, false = viuer erzwingen
+image_path = "~/Pictures/khrom_small.png"  # Path to your PNG image
+prefer_kitty_graphics = true  # true = prefer Kitty Protocol, false = force viuer fallback
 padding = 2
 
 [display.image_size]
 width = 35
 height = 15
-cell_width = 17     # Pixel pro Terminal-Zeichen (Breite) - für Ghostty/Kitty evtl. 8-12
-cell_height = 24    # Pixel pro Terminal-Zeichen (Höhe) - für Ghostty/Kitty evtl. 16-24
+cell_width = 17     # Pixels per terminal character (width)
+cell_height = 24    # Pixels per terminal character (height)
 
 [modules]
 os = true
@@ -70,5 +71,5 @@ locale = false
 # Enable or disable MOTD display
 show_motd = true
 
-# Pfad zur MOTD-Konfigurationsdatei
+# Path to MOTD configuration file
 motd_file = "~/.config/termgreet/motd.toml"
