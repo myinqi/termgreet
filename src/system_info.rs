@@ -484,12 +484,19 @@ impl SystemInfo {
             }
         }
 
-        // Try lspci as fallback
+        // Try lspci as fallback (and attempt VRAM detection for AMD/Intel)
         if let Some(output) = Self::run_command("lspci", &[]) {
             for line in output.lines() {
                 if line.contains("VGA compatible controller") || line.contains("3D controller") {
                     if let Some(gpu) = line.split(": ").nth(1) {
-                        return Self::parse_gpu_name(gpu);
+                        let clean_gpu_name = Self::parse_gpu_name(gpu);
+                        
+                        // Try to get VRAM for AMD/Intel GPUs
+                        if let Some(vram_gb) = Self::get_non_nvidia_vram() {
+                            return format!("{} ({:.1}GB)", clean_gpu_name, vram_gb);
+                        }
+                        
+                        return clean_gpu_name;
                     }
                 }
             }
@@ -1463,5 +1470,106 @@ impl SystemInfo {
         }
         
         "N/A".to_string()
+    }
+
+    fn get_non_nvidia_vram() -> Option<f64> {
+        // Method 1: Try glxinfo for OpenGL memory info
+        if let Some(output) = Self::run_command("glxinfo", &[]) {
+            for line in output.lines() {
+                let line = line.trim();
+                // Look for dedicated video memory
+                if line.contains("Dedicated video memory:") {
+                    if let Some(memory_part) = line.split(":").nth(1) {
+                        if let Some(mb_str) = memory_part.trim().split_whitespace().next() {
+                            if let Ok(mb) = mb_str.parse::<u32>() {
+                                return Some(mb as f64 / 1024.0);
+                            }
+                        }
+                    }
+                }
+                // Alternative: Video memory
+                if line.contains("Video memory:") && line.contains("MB") {
+                    if let Some(memory_part) = line.split(":").nth(1) {
+                        if let Some(mb_str) = memory_part.trim().split_whitespace().next() {
+                            if let Ok(mb) = mb_str.parse::<u32>() {
+                                return Some(mb as f64 / 1024.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Try reading from /sys/class/drm/ for AMD GPUs
+        if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("card") && !name.contains("-") {
+                        // Try to read VRAM info from AMD GPU
+                        let vram_total_path = path.join("device/mem_info_vram_total");
+                        if let Ok(vram_content) = std::fs::read_to_string(&vram_total_path) {
+                            if let Ok(vram_bytes) = vram_content.trim().parse::<u64>() {
+                                let vram_gb = vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                                if vram_gb > 0.1 { // Only return if we have significant VRAM
+                                    return Some(vram_gb);
+                                }
+                            }
+                        }
+                        
+                        // Alternative AMD path
+                        let vram_size_path = path.join("device/vram_size");
+                        if let Ok(vram_content) = std::fs::read_to_string(&vram_size_path) {
+                            if let Ok(vram_bytes) = vram_content.trim().parse::<u64>() {
+                                let vram_gb = vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                                if vram_gb > 0.1 {
+                                    return Some(vram_gb);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 3: Try lspci -v for memory information
+        if let Some(output) = Self::run_command("lspci", &["-v"]) {
+            let mut in_vga_section = false;
+            for line in output.lines() {
+                if line.contains("VGA compatible controller") || line.contains("3D controller") {
+                    in_vga_section = true;
+                    continue;
+                }
+                
+                if in_vga_section {
+                    // Look for memory ranges
+                    if line.trim().starts_with("Memory at") && line.contains("size=") {
+                        if let Some(size_part) = line.split("size=").nth(1) {
+                            let size_str = size_part.split_whitespace().next().unwrap_or("");
+                            if size_str.ends_with("M") {
+                                if let Ok(mb) = size_str.trim_end_matches('M').parse::<u32>() {
+                                    if mb >= 512 { // Only consider if >= 512MB (likely VRAM)
+                                        return Some(mb as f64 / 1024.0);
+                                    }
+                                }
+                            } else if size_str.ends_with("G") {
+                                if let Ok(gb) = size_str.trim_end_matches('G').parse::<f64>() {
+                                    if gb >= 0.5 {
+                                        return Some(gb);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Stop when we reach the next device
+                    if line.starts_with(char::is_numeric) {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        None
     }
 }
