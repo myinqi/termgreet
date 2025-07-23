@@ -90,6 +90,7 @@ gpu_temp = true
 gpu_driver = true
 memory = true
 disk = true
+dysk = false
 battery = true
 locale = false
 

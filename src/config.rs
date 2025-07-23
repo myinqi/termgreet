@@ -98,6 +98,7 @@ pub struct ModulesConfig {
     pub gpu_driver: bool,
     pub memory: bool,
     pub disk: bool,
+    pub dysk: bool,
     pub battery: bool,
     pub locale: bool,
     pub display_names: ModuleDisplayConfig,
@@ -131,6 +132,7 @@ pub struct ModuleDisplayConfig {
     pub gpu_driver: Option<String>,
     pub memory: Option<String>,
     pub disk: Option<String>,
+    pub dysk: Option<String>,
     pub battery: Option<String>,
     pub locale: Option<String>,
 }
@@ -215,6 +217,7 @@ impl Default for Config {
                 gpu_driver: true,
                 memory: true,
                 disk: true,
+                dysk: true,
                 battery: true,
                 locale: false,
                 display_names: ModuleDisplayConfig {
@@ -244,6 +247,7 @@ impl Default for Config {
                     gpu_driver: None,
                     memory: None,
                     disk: None,
+                    dysk: None,
                     battery: None,
                     locale: None,
                 },

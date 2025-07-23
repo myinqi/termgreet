@@ -498,6 +498,7 @@ impl Display {
             ("battery", "Battery", modules.battery),
             ("network", "Network", modules.network),
             ("public_ip", "Public IP", modules.public_ip),
+            ("dysk", "Drives", modules.dysk),
         ];
         
         // Calculate maximum module name width for alignment if enabled

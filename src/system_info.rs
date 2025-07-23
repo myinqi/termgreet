@@ -47,6 +47,7 @@ impl SystemInfo {
         data.insert("GPU_DRIVER".to_string(), Self::get_gpu_driver_info());
         data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
         data.insert("DISK".to_string(), Self::get_disk_info(&sys));
+        data.insert("DYSK".to_string(), Self::get_dysk_info());
 
         // Display Information
         data.insert("RESOLUTION".to_string(), Self::get_resolution());
@@ -1877,5 +1878,194 @@ impl SystemInfo {
             }
         }
         None
+    }
+
+    fn get_dysk_info() -> String {
+        // Get all mounted filesystems using df command
+        let mut mount_info = Vec::new();
+        
+        // Use df to get all mounted filesystems with human-readable sizes
+        if let Some(output) = Self::run_command_with_env("df", &["-hT"], &[("LC_ALL", "C")]) {
+            for line in output.lines().skip(1) { // Skip header line
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 7 {
+                    let device = parts[0];
+                    let filesystem = parts[1];
+                    let total = parts[2];
+                    let used = parts[3];
+                    let _available = parts[4];
+                    let usage_percent = parts[5];
+                    let mount_point = parts[6];
+                    
+                    // Skip pseudo filesystems and special mounts
+                    if Self::should_include_in_dysk(device, filesystem, mount_point) {
+                        // Parse usage percentage
+                        let usage_num = usage_percent.trim_end_matches('%')
+                            .parse::<u32>()
+                            .unwrap_or(0);
+                        
+                        // Create progress bar
+                        let progress_bar = Self::create_progress_bar(usage_num);
+                        
+                        // Format the drive info
+                        let drive_info = format!(
+                            "{} {} {}% {} {}/{} [{}]",
+                            mount_point,
+                            progress_bar,
+                            usage_num,
+                            device,
+                            used,
+                            total,
+                            filesystem
+                        );
+                        
+                        mount_info.push(drive_info);
+                    }
+                }
+            }
+        }
+        
+        // Also check for additional mounted drives that might be missed
+        if let Some(output) = Self::run_command("mount", &[]) {
+            for line in output.lines() {
+                if line.contains(" on ") && line.contains(" type ") {
+                    let parts: Vec<&str> = line.split(" on ").collect();
+                    if parts.len() >= 2 {
+                        let device = parts[0].trim();
+                        let rest = parts[1];
+                        if let Some(type_pos) = rest.find(" type ") {
+                            let mount_point = rest[..type_pos].trim();
+                            
+                            // Check if this is a removable/temporary mount we haven't seen
+                            if Self::is_temporary_mount(device, mount_point) &&
+                               !mount_info.iter().any(|info| info.contains(mount_point)) {
+                                
+                                // Get disk usage for this mount
+                                if let Some(usage_info) = Self::get_disk_usage_for_mount(mount_point) {
+                                    mount_info.push(usage_info);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if mount_info.is_empty() {
+            "No mounted drives found".to_string()
+        } else {
+            mount_info.join(" • ")
+        }
+    }
+    
+    fn should_include_in_dysk(device: &str, filesystem: &str, mount_point: &str) -> bool {
+        // Skip pseudo filesystems
+        let pseudo_fs = [
+            "tmpfs", "devtmpfs", "sysfs", "proc", "devpts", "cgroup", "cgroup2",
+            "pstore", "bpf", "configfs", "debugfs", "mqueue", "hugetlbfs",
+            "fusectl", "securityfs", "tracefs", "overlay", "squashfs"
+        ];
+        
+        if pseudo_fs.contains(&filesystem) {
+            return false;
+        }
+        
+        // Skip special mount points but allow /run/media (removable drives)
+        let skip_mounts = [
+            "/dev", "/proc", "/sys", "/tmp", "/var/tmp",
+            "/dev/shm", "/run/lock", "/sys/fs/cgroup", "/run/user"
+        ];
+        
+        // Check if it's a mount point we should skip, but make exceptions for real drives
+        for &skip in &skip_mounts {
+            if mount_point.starts_with(skip) {
+                return false;
+            }
+        }
+        
+        // Skip /run/* except for /run/media (removable drives)
+        if mount_point.starts_with("/run/") && !mount_point.starts_with("/run/media/") {
+            return false;
+        }
+        
+        // Skip loop devices unless they're meaningful (like snap packages)
+        if device.starts_with("/dev/loop") && !mount_point.starts_with("/snap/") {
+            return false;
+        }
+        
+        // Include real block devices (nvme, sd, etc.)
+        if device.starts_with("/dev/nvme") || device.starts_with("/dev/sd") || 
+           device.starts_with("/dev/hd") || device.starts_with("/dev/vd") {
+            return true;
+        }
+        
+        // Include common filesystem types on real mount points
+        let real_fs = ["ext4", "ext3", "ext2", "xfs", "btrfs", "ntfs", "vfat", "fat32", "exfat"];
+        if real_fs.contains(&filesystem) {
+            return true;
+        }
+        
+        false
+    }
+    
+    fn is_temporary_mount(device: &str, mount_point: &str) -> bool {
+        // Check for removable media patterns - any real device in removable locations
+        (device.starts_with("/dev/sd") || device.starts_with("/dev/nvme")) && (
+            mount_point.contains("/media/") ||
+            mount_point.contains("/mnt/") ||
+            mount_point.contains("/run/media/")
+        )
+    }
+    
+    fn get_disk_usage_for_mount(mount_point: &str) -> Option<String> {
+        if let Some(output) = Self::run_command_with_env("df", &["-hT", mount_point], &[("LC_ALL", "C")]) {
+            for line in output.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 7 {
+                    let device = parts[0];
+                    let filesystem = parts[1];
+                    let total = parts[2];
+                    let used = parts[3];
+                    let usage_percent = parts[5];
+                    
+                    let usage_num = usage_percent.trim_end_matches('%')
+                        .parse::<u32>()
+                        .unwrap_or(0);
+                    
+                    let progress_bar = Self::create_progress_bar(usage_num);
+                    
+                    return Some(format!(
+                        "{} {} {}% {} {}/{} [{}]",
+                        mount_point,
+                        progress_bar,
+                        usage_num,
+                        device,
+                        used,
+                        total,
+                        filesystem
+                    ));
+                }
+            }
+        }
+        None
+    }
+    
+    fn create_progress_bar(usage_percent: u32) -> String {
+        let bar_length = 10;
+        let filled_length = (usage_percent * bar_length / 100).min(bar_length);
+        let empty_length = bar_length - filled_length;
+        
+        // Use different characters based on usage level
+        let (fill_char, empty_char) = if usage_percent >= 90 {
+            ("█", "░")  // Red zone - full blocks
+        } else if usage_percent >= 70 {
+            ("▓", "░")  // Yellow zone - medium blocks
+        } else {
+            ("▒", "░")  // Green zone - light blocks
+        };
+        
+        format!("[{}{}]", 
+                fill_char.repeat(filled_length as usize),
+                empty_char.repeat(empty_length as usize))
     }
 }
