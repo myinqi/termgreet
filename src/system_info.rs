@@ -1055,69 +1055,179 @@ impl SystemInfo {
     }
 
     fn get_disk_info(_sys: &System) -> String {
-        // Try multiple approaches to get disk info
+        // Get specific important mountpoints with filesystem info
+        let mut disk_info = Vec::new();
         
-        // Method 1: Use df command with POSIX locale
-        if let Some(output) = Self::run_command_with_env("df", &["-h", "/"], &[("LC_ALL", "C")]) {
-            if let Some(result) = Self::parse_df_output(&output, "LC_ALL=C") {
-                return result;
+        // Always check root partition first
+        if let Some(info) = Self::get_disk_info_with_filesystem("/") {
+            if !info.is_empty() && info != "Unknown" {
+                disk_info.push(format!("/ {}", info));
             }
         }
         
-        // Method 2: Try df without locale override
-        if let Some(output) = Self::run_command("df", &["-h", "/"]) {
-            if let Some(result) = Self::parse_df_output(&output, "default") {
-                return result;
+        // Check /boot/efi if it exists
+        if let Some(info) = Self::get_disk_info_with_filesystem("/boot/efi") {
+            if !info.is_empty() && info != "Unknown" {
+                disk_info.push(format!("/boot {}", info));
             }
         }
         
-        // Method 3: Try df with explicit LANG=C
-        if let Some(output) = Self::run_command_with_env("df", &["-h", "/"], &[("LANG", "C")]) {
-            if let Some(result) = Self::parse_df_output(&output, "LANG=C") {
-                return result;
-            }
-        }
-        
-        // Method 4: Try lsblk as alternative
-        if let Some(output) = Self::run_command("lsblk", &["-f", "/"]) {
-            // Parse lsblk output as fallback
-            for line in output.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    // This is a basic fallback, may not be as accurate
-                    return "Available".to_string();
+        // Check /home only if it's on a separate device from /
+        if Self::is_separate_partition("/", "/home") {
+            if let Some(info) = Self::get_disk_info_with_filesystem("/home") {
+                if !info.is_empty() && info != "Unknown" {
+                    disk_info.push(format!("/home {}", info));
                 }
             }
         }
         
-        "Unknown".to_string()
+        // Join with bullet separator
+        if !disk_info.is_empty() {
+            disk_info.join(" • ")
+        } else {
+            // Fallback: try to get at least root filesystem info
+            Self::get_disk_info_with_filesystem("/").unwrap_or_else(|| "Unknown".to_string())
+        }
     }
     
-    fn parse_df_output(output: &str, _method: &str) -> Option<String> {
-        for line in output.lines().skip(1) { // Skip header
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            
-            if parts.len() >= 6 {
-                // Standard format: Filesystem Size Used Avail Use% Mounted
-                let total = parts[1];
-                let used = parts[2];
-                let usage = parts[4];
-                return Some(format!("{} / {} ({})", used, total, usage));
-            } else if parts.len() == 5 {
-                // Compact format or filesystem on separate line
-                let total = parts[0];
-                let used = parts[1];
-                let usage = parts[3];
-                return Some(format!("{} / {} ({})", used, total, usage));
-            } else if parts.len() == 4 {
-                // Very compact format
-                let total = parts[0];
-                let used = parts[1];
-                let usage = parts[2];
-                return Some(format!("{} / {} ({})", used, total, usage));
+    fn get_single_disk_info(mount_point: &str) -> Option<String> {
+        // Simple wrapper for backward compatibility
+        Self::get_single_disk_info_with_device(mount_point).map(|(info, _)| info)
+    }
+    
+    fn get_disk_info_with_filesystem(mount_point: &str) -> Option<String> {
+        // Try multiple approaches to get disk info with filesystem type
+        
+        // Method 1: Use df -hT command with POSIX locale
+        if let Some(output) = Self::run_command_with_env("df", &["-hT", mount_point], &[("LC_ALL", "C")]) {
+            if let Some(result) = Self::parse_df_output_with_fs(&output, "LC_ALL=C") {
+                return Some(result);
             }
         }
         
+        // Method 2: Try df -hT without locale override
+        if let Some(output) = Self::run_command("df", &["-hT", mount_point]) {
+            if let Some(result) = Self::parse_df_output_with_fs(&output, "default") {
+                return Some(result);
+            }
+        }
+        
+        // Method 3: Try df -hT with explicit LANG=C
+        if let Some(output) = Self::run_command_with_env("df", &["-hT", mount_point], &[("LANG", "C")]) {
+            if let Some(result) = Self::parse_df_output_with_fs(&output, "LANG=C") {
+                return Some(result);
+            }
+        }
+        
+        // Fallback: try without filesystem type
+        Self::get_single_disk_info(mount_point)
+    }
+    
+    fn is_separate_partition(mount1: &str, mount2: &str) -> bool {
+        // Check if two mount points are on separate devices/partitions
+        let device1 = Self::get_device_for_mountpoint(mount1);
+        let device2 = Self::get_device_for_mountpoint(mount2);
+        
+        match (device1, device2) {
+            (Some(d1), Some(d2)) => d1 != d2,
+            _ => false, // If we can't determine devices, assume they're the same
+        }
+    }
+    
+    fn get_device_for_mountpoint(mount_point: &str) -> Option<String> {
+        // Get the device name for a specific mount point using df
+        if let Some(output) = Self::run_command_with_env("df", &[mount_point], &[("LC_ALL", "C")]) {
+            for line in output.lines().skip(1) { // Skip header line
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    return Some(parts[0].to_string());
+                }
+            }
+        }
+        None
+    }
+    
+    fn get_single_disk_info_with_device(mount_point: &str) -> Option<(String, String)> {
+        // Try multiple approaches to get disk info for a specific mount point
+        
+        // Method 1: Use df command with POSIX locale
+        if let Some(output) = Self::run_command_with_env("df", &["-h", mount_point], &[("LC_ALL", "C")]) {
+            if let Some((result, device)) = Self::parse_df_output_with_device(&output, "LC_ALL=C") {
+                return Some((result, device));
+            }
+        }
+        
+        // Method 2: Try df without locale override
+        if let Some(output) = Self::run_command("df", &["-h", mount_point]) {
+            if let Some((result, device)) = Self::parse_df_output_with_device(&output, "default") {
+                return Some((result, device));
+            }
+        }
+        
+        // Method 3: Try df with explicit LANG=C
+        if let Some(output) = Self::run_command_with_env("df", &["-h", mount_point], &[("LANG", "C")]) {
+            if let Some((result, device)) = Self::parse_df_output_with_device(&output, "LANG=C") {
+                return Some((result, device));
+            }
+        }
+        
+        None
+    }
+    
+
+    
+    fn parse_df_output_with_device(output: &str, _method: &str) -> Option<(String, String)> {
+        for line in output.lines().skip(1) { // Skip header line
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            
+            // Handle different df output formats
+            if parts.len() >= 6 {
+                // Standard format: Filesystem Size Used Avail Use% Mounted
+                let device = parts[0].to_string();
+                let total = parts[1];
+                let used = parts[2];
+                let usage = parts[4];
+                return Some((format!("{} / {} ({})", used, total, usage), device));
+            } else if parts.len() >= 5 {
+                // Alternative format: might have filesystem on separate line
+                let device = parts[0].to_string();
+                let total = parts[1];
+                let used = parts[2];
+                let usage = parts[4];
+                return Some((format!("{} / {} ({})", used, total, usage), device));
+            } else if parts.len() == 4 {
+                // Another format variation
+                let device = "unknown".to_string();
+                let total = parts[0];
+                let used = parts[1];
+                let usage = parts[2];
+                return Some((format!("{} / {} ({})", used, total, usage), device));
+            }
+        }
+        None
+    }
+    
+    fn parse_df_output_with_fs(output: &str, _method: &str) -> Option<String> {
+        for line in output.lines().skip(1) { // Skip header line
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            
+            // Handle df -hT output format: Filesystem Type Size Used Avail Use% Mounted
+            if parts.len() >= 7 {
+                // Standard format with filesystem type: Filesystem Type Size Used Avail Use% Mounted
+                let filesystem = parts[1];
+                let total = parts[2];
+                let used = parts[3];
+                let usage = parts[5];
+                return Some(format!("{} / {} ({}) [{}]", used, total, usage, filesystem));
+            } else if parts.len() >= 6 {
+                // Alternative format: might be missing some fields
+                let filesystem = parts[1];
+                let total = parts[2];
+                let used = parts[3];
+                let usage = parts[4];
+                return Some(format!("{} / {} ({}) [{}]", used, total, usage, filesystem));
+            }
+        }
         None
     }
 
