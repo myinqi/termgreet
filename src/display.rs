@@ -258,7 +258,7 @@ impl Display {
                         
                         let line = format!(
                             "{}{}{}",
-                            self.apply_color(&padded_name, &colors.title),
+                            self.apply_color(&padded_name, &colors.module),
                             self.apply_color(&separator, &colors.separator),
                             self.apply_color(trimmed_value, &colors.info)
                         );

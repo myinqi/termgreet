@@ -30,6 +30,7 @@ pub struct SeparatorConfig {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ColorsConfig {
     pub title: String,
+    pub module: String,
     pub info: String,
     pub separator: String,
 }
@@ -94,6 +95,7 @@ impl Default for Config {
                 },
                 colors: ColorsConfig {
                     title: "bright_cyan".to_string(),
+                    module: "bright_cyan".to_string(),
                     info: "bright_white".to_string(),
                     separator: "bright_blue".to_string(),
                 },

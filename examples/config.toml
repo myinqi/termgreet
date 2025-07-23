@@ -13,9 +13,27 @@ space_after = 6     # Number of spaces after the separator
 align_separator = true  # Align all separators in a column by padding module names
 
 [general.colors]
-title = "bright_cyan"
-info = "bright_white"
-separator = "bright_blue"
+# Available colors:
+#  "black"
+#  "red"
+#  "green"
+#  "yellow"
+#  "blue"
+#  "magenta"
+#  "cyan"
+#  "white"
+#  "bright_black"
+#  "bright_red"
+#  "bright_green"
+#  "bright_yellow"
+#  "bright_blue"
+#  "bright_magenta"
+#  "bright_cyan"
+#  "bright_white"
+title = "bright_cyan"     # Color for the main title (e.g., "System Information")
+module = "bright_cyan"    # Color for module names (e.g., "OS", "Kernel", "CPU")
+info = "bright_white"     # Color for the information values
+separator = "bright_blue" # Color for the separator between module and value
 
 [display]
 show_image = true
