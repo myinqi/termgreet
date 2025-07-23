@@ -64,6 +64,7 @@ show_versions = true  # Show version information for Shell, Terminal, DE, WM mod
 user_at_host = true
 os = true
 kernel = true
+linux = flase
 uptime = true
 os_age = true
 packages = true

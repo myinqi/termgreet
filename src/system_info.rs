@@ -18,6 +18,7 @@ impl SystemInfo {
         // OS Information
         data.insert("OS".to_string(), Self::get_os_info());
         data.insert("KERNEL".to_string(), Self::get_kernel_version());
+        data.insert("LINUX".to_string(), Self::get_linux_info());
         data.insert("UPTIME".to_string(), Self::format_uptime(System::uptime()));
         data.insert("OS_AGE".to_string(), Self::get_os_age());
 
@@ -98,6 +99,12 @@ impl SystemInfo {
     fn get_kernel_version() -> String {
         Self::run_command("uname", &["-r"])
             .unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    fn get_linux_info() -> String {
+        let os = Self::get_os_info();
+        let kernel = Self::get_kernel_version();
+        format!("{} - {}", os, kernel)
     }
 
     fn format_uptime(uptime_seconds: u64) -> String {
