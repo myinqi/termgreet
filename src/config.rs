@@ -89,7 +89,9 @@ pub struct ModulesConfig {
     pub hostname: bool,
     pub user_at_host: bool,
     pub cpu: bool,
+    pub cpu_temp: bool,
     pub gpu: bool,
+    pub gpu_temp: bool,
     pub gpu_driver: bool,
     pub memory: bool,
     pub disk: bool,
@@ -118,7 +120,9 @@ pub struct ModuleDisplayConfig {
     pub user: Option<String>,
     pub hostname: Option<String>,
     pub cpu: Option<String>,
+    pub cpu_temp: Option<String>,
     pub gpu: Option<String>,
+    pub gpu_temp: Option<String>,
     pub gpu_driver: Option<String>,
     pub memory: Option<String>,
     pub disk: Option<String>,
@@ -197,7 +201,9 @@ impl Default for Config {
                 hostname: true,
                 user_at_host: true,
                 cpu: true,
+                cpu_temp: true,
                 gpu: true,
+                gpu_temp: true,
                 gpu_driver: true,
                 memory: true,
                 disk: true,
@@ -222,7 +228,9 @@ impl Default for Config {
                     user: None,
                     hostname: None,
                     cpu: None,
+                    cpu_temp: None,
                     gpu: None,
+                    gpu_temp: None,
                     gpu_driver: None,
                     memory: None,
                     disk: None,
@@ -255,11 +263,65 @@ impl Default for MotdConfig {
 }
 
 impl Config {
+    fn setup_default_assets(config_dir: &Path) -> Result<()> {
+        // Create pngs directory if it doesn't exist
+        let pngs_dir = config_dir.join("pngs");
+        if !pngs_dir.exists() {
+            fs::create_dir_all(&pngs_dir)
+                .with_context(|| format!("Failed to create pngs directory: {}", pngs_dir.display()))?;
+        }
+        
+        // Copy default logo if it doesn't exist
+        let default_logo_path = pngs_dir.join("termgreet_logo.png");
+        if !default_logo_path.exists() {
+            // Try to find the assets directory relative to the executable
+            let exe_path = std::env::current_exe()
+                .with_context(|| "Failed to get executable path")?;
+            let exe_dir = exe_path.parent()
+                .with_context(|| "Failed to get executable directory")?;
+            
+            // Look for assets in common locations
+            let possible_asset_paths = [
+                exe_dir.join("../../../assets/termgreet_logo.png"), // Development (target/debug/)
+                exe_dir.join("../../assets/termgreet_logo.png"),    // Development (target/release/)
+                exe_dir.join("../assets/termgreet_logo.png"),       // Installed relative
+                exe_dir.join("assets/termgreet_logo.png"),          // Same directory
+                std::env::current_dir().unwrap_or_default().join("assets/termgreet_logo.png"), // Current working directory
+            ];
+            
+            let mut logo_copied = false;
+            for asset_path in &possible_asset_paths {
+                if asset_path.exists() {
+                    fs::copy(asset_path, &default_logo_path)
+                        .with_context(|| format!("Failed to copy logo from {} to {}", 
+                                                asset_path.display(), default_logo_path.display()))?;
+                    logo_copied = true;
+                    break;
+                }
+            }
+            
+            if !logo_copied {
+                // If we can't find the asset, create a placeholder file or just warn
+                eprintln!("Warning: Could not find termgreet_logo.png in assets directory. Please manually copy it to {}", default_logo_path.display());
+            }
+        }
+        
+        Ok(())
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
             // Create default config if it doesn't exist
             let config = Self::default();
             config.save(path)?;
+            
+            // Setup default assets (pngs directory and logo)
+            if let Some(config_dir) = path.parent() {
+                if let Err(e) = Self::setup_default_assets(config_dir) {
+                    eprintln!("Warning: Failed to setup default assets: {}", e);
+                }
+            }
+            
             return Ok(config);
         }
 

@@ -41,7 +41,9 @@ impl SystemInfo {
 
         // Hardware Information
         data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
+        data.insert("CPU_TEMP".to_string(), Self::get_cpu_temperature());
         data.insert("GPU".to_string(), Self::get_gpu_info());
+        data.insert("GPU_TEMP".to_string(), Self::get_gpu_temperature());
         data.insert("GPU_DRIVER".to_string(), Self::get_gpu_driver_info());
         data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
         data.insert("DISK".to_string(), Self::get_disk_info(&sys));
@@ -1367,5 +1369,89 @@ impl SystemInfo {
                     None
                 }
             })
+    }
+
+    fn get_cpu_temperature() -> String {
+        // Try to get CPU temperature from sensors command
+        if let Ok(output) = std::process::Command::new("sensors")
+            .output()
+        {
+            if output.status.success() {
+                let sensors_output = String::from_utf8_lossy(&output.stdout);
+                
+                // Look for k10temp (AMD) or coretemp (Intel) blocks
+                for line in sensors_output.lines() {
+                    let line = line.trim();
+                    
+                    // AMD: Look for Tctl temperature
+                    if line.starts_with("Tctl:") {
+                        if let Some(temp_part) = line.split_whitespace().nth(1) {
+                            if let Some(temp) = temp_part.strip_prefix("+").and_then(|t| t.strip_suffix("°C")) {
+                                return format!("{}°C", temp);
+                            }
+                        }
+                    }
+                    
+                    // Intel: Look for Core 0 temperature (first core as representative)
+                    if line.starts_with("Core 0:") {
+                        if let Some(temp_part) = line.split_whitespace().nth(2) {
+                            if let Some(temp) = temp_part.strip_prefix("+").and_then(|t| t.strip_suffix("°C")) {
+                                return format!("{}°C", temp);
+                            }
+                        }
+                    }
+                    
+                    // Generic: Look for Package id 0 (Intel)
+                    if line.starts_with("Package id 0:") {
+                        if let Some(temp_part) = line.split_whitespace().nth(3) {
+                            if let Some(temp) = temp_part.strip_prefix("+").and_then(|t| t.strip_suffix("°C")) {
+                                return format!("{}°C", temp);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        "N/A".to_string()
+    }
+
+    fn get_gpu_temperature() -> String {
+        // Try NVIDIA first (nvidia-smi)
+        if let Ok(output) = std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=temperature.gpu", "--format=csv,noheader"])
+            .output()
+        {
+            if output.status.success() {
+                let temp_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !temp_str.is_empty() && temp_str != "N/A" {
+                    return format!("{}°C", temp_str);
+                }
+            }
+        }
+        
+        // Try AMD via sensors (amdgpu)
+        if let Ok(output) = std::process::Command::new("sensors")
+            .output()
+        {
+            if output.status.success() {
+                let sensors_output = String::from_utf8_lossy(&output.stdout);
+                
+                // Look for amdgpu temperature
+                for line in sensors_output.lines() {
+                    let line = line.trim();
+                    
+                    if line.starts_with("edge:") || line.starts_with("junction:") {
+                        if let Some(temp_part) = line.split_whitespace().nth(1) {
+                            if let Some(temp) = temp_part.strip_prefix("+").and_then(|t| t.strip_suffix("°C")) {
+                                return format!("{}°C", temp);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        "N/A".to_string()
     }
 }

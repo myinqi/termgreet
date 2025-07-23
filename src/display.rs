@@ -33,20 +33,38 @@ impl Display {
         
         // Display PNG image if configured and available
         if self.show_images && self.config.display.show_image {
+            let mut image_to_use: Option<std::path::PathBuf> = None;
+            
+            // First, check if a specific image path is configured
             if let Some(ref image_path) = self.config.display.image_path {
                 if image_path.exists() {
-                    // Check layout configuration
-                    match self.config.display.layout.as_str() {
-                        "horizontal" => {
-                            self.show_horizontal_layout(image_path, &info_lines)?;
-                        },
-                        _ => { // "vertical" or any other value defaults to vertical
-                            self.show_image_with_info(image_path, &info_lines)?;
-                        }
-                    }
-                    self.show_motd_if_enabled()?;
-                    return Ok(());
+                    image_to_use = Some(image_path.clone());
                 }
+            }
+            
+            // If no specific image or it doesn't exist, try default logo
+            if image_to_use.is_none() {
+                if let Some(config_dir) = dirs::config_dir() {
+                    let default_logo = config_dir.join("termgreet").join("pngs").join("termgreet_logo.png");
+                    if default_logo.exists() {
+                        image_to_use = Some(default_logo);
+                    }
+                }
+            }
+            
+            // Display the image if we found one
+            if let Some(image_path) = image_to_use {
+                // Check layout configuration
+                match self.config.display.layout.as_str() {
+                    "horizontal" => {
+                        self.show_horizontal_layout(&image_path, &info_lines)?;
+                    },
+                    _ => { // "vertical" or any other value defaults to vertical
+                        self.show_image_with_info(&image_path, &info_lines)?;
+                    }
+                }
+                self.show_motd_if_enabled()?;
+                return Ok(());
             }
         }
         
@@ -407,7 +425,9 @@ impl Display {
             "user" => &display_names.user,
             "hostname" => &display_names.hostname,
             "cpu" => &display_names.cpu,
+            "cpu_temp" => &display_names.cpu_temp,
             "gpu" => &display_names.gpu,
+            "gpu_temp" => &display_names.gpu_temp,
             "gpu_driver" => &display_names.gpu_driver,
             "memory" => &display_names.memory,
             "disk" => &display_names.disk,
@@ -457,7 +477,9 @@ impl Display {
             ("user", "User", modules.user),
             ("hostname", "Hostname", modules.hostname),
             ("cpu", "CPU", modules.cpu),
+            ("cpu_temp", "CPU Temp", modules.cpu_temp),
             ("gpu", "GPU", modules.gpu),
+            ("gpu_temp", "GPU Temp", modules.gpu_temp),
             ("gpu_driver", "GPU Driver", modules.gpu_driver),
             ("memory", "Memory", modules.memory),
             ("disk", "Disk", modules.disk),
