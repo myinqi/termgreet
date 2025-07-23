@@ -302,21 +302,44 @@ impl Display {
         let image_width = self.config.display.image_size.width as usize;
         let padding = self.config.display.padding as usize;
         
-        // Check user preference for horizontal layout rendering
-        if self.config.display.horizontal_kitty_graphics && 
-           self.config.display.prefer_kitty_graphics && 
-           self.is_kitty_terminal() {
-            // User prefers Kitty Graphics quality even in horizontal layout
-            // This means modules will appear below the image (not true side-by-side)
+        // For Kitty Graphics Protocol, we need to implement true side-by-side layout
+        if self.config.display.prefer_kitty_graphics && self.is_kitty_terminal() {
+            // Render the image with Kitty Graphics Protocol
             self.render_image_to_terminal(image_path)?;
             
-            // Add spacing after image
-            println!();
+            // Calculate image height in terminal cells for cursor positioning
+            let image_height = self.config.display.image_size.height as usize;
             
-            // Show system info below image
-            for line in info_lines {
-                println!("{}", line);
+            // Move cursor up to the top of the image and position it to the right
+            // ANSI escape sequence: \x1b[{rows}A moves cursor up, \x1b[{cols}C moves cursor right
+            let info_start_col = image_width + padding;
+            
+            // Move cursor to the top-right position for info display
+            print!("\x1b[{}A", image_height); // Move cursor up by image height
+            print!("\x1b[{}C", info_start_col); // Move cursor right to info column
+            
+            // Print each info line with proper cursor positioning
+            for (i, line) in info_lines.iter().enumerate() {
+                if i > 0 {
+                    // Move to next line and position cursor at info column
+                    print!("\x1b[1B"); // Move cursor down one line
+                    print!("\x1b[{}G", info_start_col + 1); // Move cursor to specific column (1-indexed)
+                }
+                print!("{}", line);
             }
+            
+            // Move cursor to end position (below the image)
+            let remaining_lines = if image_height > info_lines.len() {
+                image_height - info_lines.len()
+            } else {
+                0
+            };
+            if remaining_lines > 0 {
+                print!("\x1b[{}B", remaining_lines); // Move cursor down
+            }
+            print!("\x1b[1G"); // Move cursor to beginning of line
+            println!(); // Add final newline
+            
         } else {
             // Use block-based rendering for true side-by-side layout
             // This works in all terminals, including Kitty/Ghostty

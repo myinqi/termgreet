@@ -41,7 +41,6 @@ show_image = true
 image_path = "~/Pictures/khrom_small.png"  # Path to your PNG image
 prefer_kitty_graphics = true  # true = prefer Kitty Protocol, false = force viuer fallback
 padding = 2
-layout = "vertical"  # Layout: "vertical" (image above modules) or "horizontal" (modules beside image)
 
 [display.image_size]
 width = 35
