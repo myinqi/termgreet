@@ -3,6 +3,7 @@
 
 # General settings
 [general]
+show_title = true
 title = "System Information"
 
 # Separator configuration between module names and values
@@ -72,6 +73,8 @@ flatpak_packages = false
 packages_combined = false
 shell = true
 resolution = true
+network = true
+public_ip = false
 de = false
 wm = false
 theme = false
@@ -102,6 +105,8 @@ os_age = "OS Age"             # Default: "OS Age"
 packages = "Packages"         # Default: "Packages"
 shell = "Shell"               # Default: "Shell"
 resolution = "Resolution"     # Default: "Resolution"
+network = "Network"           # Default: "Network"
+public_ip = "Public IP"       # Default: "Public IP"
 terminal = "Terminal"         # Default: "Terminal"
 font = "Font"                # Default: "Font"
 cpu = "Processor"            # Default: "CPU"

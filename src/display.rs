@@ -22,10 +22,12 @@ impl Display {
     }
 
     pub fn show(&self, system_info: &SystemInfo) -> Result<()> {
-        // Show title if configured
-        if let Some(ref title) = self.config.general.title {
-            println!("{}", self.apply_color(title, &self.config.general.colors.title));
-            println!();
+        // Show title if configured and enabled
+        if self.config.general.show_title {
+            if let Some(ref title) = self.config.general.title {
+                println!("{}", self.apply_color(title, &self.config.general.colors.title));
+                println!();
+            }
         }
         
         // Prepare system info lines
@@ -416,6 +418,8 @@ impl Display {
             "packages" | "packages_combined" => &display_names.packages,
             "shell" => &display_names.shell,
             "resolution" => &display_names.resolution,
+            "network" => &display_names.network,
+            "public_ip" => &display_names.public_ip,
             "de" => &display_names.de,
             "wm" => &display_names.wm,
             "theme" => &display_names.theme,
@@ -458,6 +462,8 @@ impl Display {
         // Define the order and mapping of modules
         let module_order = [
             ("user_at_host", "Login", modules.user_at_host),
+            ("user", "User", modules.user),
+            ("hostname", "Hostname", modules.hostname),            
             ("os", "OS", modules.os),
             ("kernel", "Kernel", modules.kernel),
             ("linux", "Linux", modules.linux),
@@ -467,15 +473,14 @@ impl Display {
             ("flatpak_packages", "Flatpak", modules.flatpak_packages),
             ("packages_combined", "Packages", modules.packages_combined),
             ("shell", "Shell", modules.shell),
+            ("terminal", "Terminal", modules.terminal),            
             ("resolution", "Resolution", modules.resolution),
             ("de", "DE", modules.de),
             ("wm", "WM", modules.wm),
             ("theme", "Theme", modules.theme),
             ("icons", "Icons", modules.icons),
-            ("terminal", "Terminal", modules.terminal),
             ("font", "Font", modules.font),
-            ("user", "User", modules.user),
-            ("hostname", "Hostname", modules.hostname),
+            ("locale", "Locale", modules.locale),            
             ("cpu", "CPU", modules.cpu),
             ("cpu_temp", "CPU Temp", modules.cpu_temp),
             ("gpu", "GPU", modules.gpu),
@@ -484,7 +489,8 @@ impl Display {
             ("memory", "Memory", modules.memory),
             ("disk", "Disk", modules.disk),
             ("battery", "Battery", modules.battery),
-            ("locale", "Locale", modules.locale),
+            ("network", "Network", modules.network),
+            ("public_ip", "Public IP", modules.public_ip),
         ];
         
         // Calculate maximum module name width for alignment if enabled

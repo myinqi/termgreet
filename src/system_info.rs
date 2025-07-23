@@ -50,6 +50,10 @@ impl SystemInfo {
 
         // Display Information
         data.insert("RESOLUTION".to_string(), Self::get_resolution());
+        
+        // Network Information
+        data.insert("NETWORK".to_string(), Self::get_network_info());
+        data.insert("PUBLIC_IP".to_string(), Self::get_public_ip_info());
 
         // Additional modules that might be missing
         data.insert("THEME".to_string(), Self::get_theme());
@@ -1051,19 +1055,70 @@ impl SystemInfo {
     }
 
     fn get_disk_info(_sys: &System) -> String {
-        // Use df command as fallback since sysinfo disk API changed
+        // Try multiple approaches to get disk info
+        
+        // Method 1: Use df command with POSIX locale
+        if let Some(output) = Self::run_command_with_env("df", &["-h", "/"], &[("LC_ALL", "C")]) {
+            if let Some(result) = Self::parse_df_output(&output, "LC_ALL=C") {
+                return result;
+            }
+        }
+        
+        // Method 2: Try df without locale override
         if let Some(output) = Self::run_command("df", &["-h", "/"]) {
-            for line in output.lines().skip(1) { // Skip header
+            if let Some(result) = Self::parse_df_output(&output, "default") {
+                return result;
+            }
+        }
+        
+        // Method 3: Try df with explicit LANG=C
+        if let Some(output) = Self::run_command_with_env("df", &["-h", "/"], &[("LANG", "C")]) {
+            if let Some(result) = Self::parse_df_output(&output, "LANG=C") {
+                return result;
+            }
+        }
+        
+        // Method 4: Try lsblk as alternative
+        if let Some(output) = Self::run_command("lsblk", &["-f", "/"]) {
+            // Parse lsblk output as fallback
+            for line in output.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    let total = parts[1];
-                    let used = parts[2];
-                    let usage = parts[4];
-                    return format!("{} / {} ({})", used, total, usage);
+                if parts.len() >= 4 {
+                    // This is a basic fallback, may not be as accurate
+                    return "Available".to_string();
                 }
             }
         }
+        
         "Unknown".to_string()
+    }
+    
+    fn parse_df_output(output: &str, _method: &str) -> Option<String> {
+        for line in output.lines().skip(1) { // Skip header
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            
+            if parts.len() >= 6 {
+                // Standard format: Filesystem Size Used Avail Use% Mounted
+                let total = parts[1];
+                let used = parts[2];
+                let usage = parts[4];
+                return Some(format!("{} / {} ({})", used, total, usage));
+            } else if parts.len() == 5 {
+                // Compact format or filesystem on separate line
+                let total = parts[0];
+                let used = parts[1];
+                let usage = parts[3];
+                return Some(format!("{} / {} ({})", used, total, usage));
+            } else if parts.len() == 4 {
+                // Very compact format
+                let total = parts[0];
+                let used = parts[1];
+                let usage = parts[2];
+                return Some(format!("{} / {} ({})", used, total, usage));
+            }
+        }
+        
+        None
     }
 
     fn get_resolution() -> String {
@@ -1378,18 +1433,40 @@ impl SystemInfo {
         "Unknown".to_string()
     }
 
-    fn run_command(cmd: &str, args: &[&str]) -> Option<String> {
-        Command::new(cmd)
+    fn run_command(command: &str, args: &[&str]) -> Option<String> {
+        match std::process::Command::new(command)
             .args(args)
             .output()
-            .ok()
-            .and_then(|output| {
+        {
+            Ok(output) => {
                 if output.status.success() {
-                    String::from_utf8(output.stdout).ok()
+                    Some(String::from_utf8_lossy(&output.stdout).to_string())
                 } else {
                     None
                 }
-            })
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn run_command_with_env(command: &str, args: &[&str], env_vars: &[(&str, &str)]) -> Option<String> {
+        let mut cmd = std::process::Command::new(command);
+        cmd.args(args);
+        
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+        
+        match cmd.output() {
+            Ok(output) => {
+                if output.status.success() {
+                    Some(String::from_utf8_lossy(&output.stdout).to_string())
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
     }
 
     fn get_cpu_temperature() -> String {
@@ -1587,6 +1664,108 @@ impl SystemInfo {
             }
         }
         
+        None
+    }
+
+    fn get_network_info() -> String {
+        // Try to get the primary network interface and its IP
+        if let Some(output) = Self::run_command("ip", &["route", "show", "default"]) {
+            // Extract default interface from "default via ... dev <interface>"
+            if let Some(line) = output.lines().next() {
+                if let Some(dev_pos) = line.find(" dev ") {
+                    let after_dev = &line[dev_pos + 5..];
+                    if let Some(interface) = after_dev.split_whitespace().next() {
+                        // Get IP address for this interface
+                        if let Some(ip_output) = Self::run_command("ip", &["addr", "show", interface]) {
+                            for ip_line in ip_output.lines() {
+                                let trimmed = ip_line.trim();
+                                if trimmed.starts_with("inet ") && !trimmed.contains("127.0.0.1") {
+                                    if let Some(ip_part) = trimmed.split_whitespace().nth(1) {
+                                        if let Some(ip) = ip_part.split('/').next() {
+                                            return format!("{} ({})", ip, interface);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Fallback: show interface name only
+                        return format!("Connected ({})", interface);
+                    }
+                }
+            }
+        }
+        
+        // Alternative: Try to find any active interface with IP
+        if let Some(output) = Self::run_command("ip", &["addr", "show"]) {
+            let mut current_interface = String::new();
+            for line in output.lines() {
+                let trimmed = line.trim();
+                
+                // Check for interface line (starts with number)
+                if let Some(first_char) = trimmed.chars().next() {
+                    if first_char.is_ascii_digit() {
+                        if let Some(interface_part) = trimmed.split(':').nth(1) {
+                            current_interface = interface_part.trim().to_string();
+                        }
+                    }
+                }
+                
+                // Check for inet line with non-loopback IP
+                if trimmed.starts_with("inet ") && !trimmed.contains("127.0.0.1") && !current_interface.is_empty() {
+                    if let Some(ip_part) = trimmed.split_whitespace().nth(1) {
+                        if let Some(ip) = ip_part.split('/').next() {
+                            return format!("{} ({})", ip, current_interface);
+                        }
+                    }
+                }
+            }
+        }
+        
+        "Not connected".to_string()
+    }
+
+    fn get_public_ip_info() -> String {
+        // Try multiple services to get public IP
+        let services = [
+            "ifconfig.me",
+            "ipinfo.io/ip",
+            "icanhazip.com",
+            "checkip.amazonaws.com"
+        ];
+        
+        for service in &services {
+            if let Some(output) = Self::run_command("curl", &["-s", "--max-time", "3", service]) {
+                let ip = output.trim();
+                if !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                    // Try to get ISP info
+                    if let Some(isp) = Self::get_isp_info(&ip) {
+                        return format!("{} ({})", ip, isp);
+                    }
+                    return ip.to_string();
+                }
+            }
+        }
+        
+        "Not available".to_string()
+    }
+    
+    fn get_isp_info(ip: &str) -> Option<String> {
+        // Try to get ISP information from ipinfo.io
+        let url = format!("ipinfo.io/{}/org", ip);
+        if let Some(output) = Self::run_command("curl", &["-s", "--max-time", "3", &url]) {
+            let org = output.trim();
+            if !org.is_empty() && !org.contains("error") {
+                // Clean up ISP name (remove AS numbers)
+                if let Some(space_pos) = org.find(' ') {
+                    let clean_name = &org[space_pos + 1..];
+                    if !clean_name.is_empty() {
+                        return Some(clean_name.to_string());
+                    }
+                }
+                return Some(org.to_string());
+            }
+        }
         None
     }
 }

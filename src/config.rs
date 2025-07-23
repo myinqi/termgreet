@@ -14,6 +14,7 @@ pub struct Config {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GeneralConfig {
+    pub show_title: bool,
     pub title: Option<String>,
     pub separator: SeparatorConfig,
     pub colors: ColorsConfig,
@@ -79,6 +80,8 @@ pub struct ModulesConfig {
     pub packages_combined: bool,
     pub shell: bool,
     pub resolution: bool,
+    pub network: bool,
+    pub public_ip: bool,
     pub de: bool,
     pub wm: bool,
     pub theme: bool,
@@ -111,6 +114,8 @@ pub struct ModuleDisplayConfig {
     pub packages: Option<String>,
     pub shell: Option<String>,
     pub resolution: Option<String>,
+    pub network: Option<String>,
+    pub public_ip: Option<String>,
     pub de: Option<String>,
     pub wm: Option<String>,
     pub theme: Option<String>,
@@ -142,6 +147,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             general: GeneralConfig {
+                show_title: true,
                 title: Some("System Information".to_string()),
                 separator: SeparatorConfig {
                     symbol: "->".to_string(),
@@ -191,6 +197,8 @@ impl Default for Config {
                 packages_combined: true,
                 shell: true,
                 resolution: true,
+                network: true,
+                public_ip: false,
                 de: true,
                 wm: true,
                 theme: false,
@@ -219,6 +227,8 @@ impl Default for Config {
                     packages: None,
                     shell: None,
                     resolution: None,
+                    network: None,
+                    public_ip: None,
                     de: None,
                     wm: None,
                     theme: None,
