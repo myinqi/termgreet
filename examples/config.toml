@@ -109,7 +109,7 @@ cpu_temp = "CPU Temperature"   # Default: "CPU Temp"
 gpu = "Graphics"             # Default: "GPU"
 gpu_temp = "GPU Temperature"   # Default: "GPU Temp"
 gpu_driver = "GPU Driver"     # Default: "GPU Driver"
-memory = "Memory"             # Default: "Memory"
+memory = "Sys. Mem."             # Default: "Memory"
 disk = "Storage"             # Default: "Disk"
 # Optional: Add Nerd Font icons if your terminal/font supports them:
 # user_at_host = " System"  # Nerd Font icon examples

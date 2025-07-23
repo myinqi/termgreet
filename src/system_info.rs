@@ -469,12 +469,16 @@ impl SystemInfo {
             if let Some(gpu) = output.lines().next() {
                 let clean_name = gpu.trim();
                 if !clean_name.is_empty() {
-                    // Try to get VRAM size for NVIDIA GPUs
-                    if let Some(vram_output) = Self::run_command("nvidia-smi", &["--query-gpu=memory.total", "--format=csv,noheader,nounits"]) {
-                        if let Some(vram_mb) = vram_output.lines().next() {
-                            if let Ok(vram_mb_num) = vram_mb.trim().parse::<u32>() {
-                                let vram_gb = vram_mb_num as f64 / 1024.0;
-                                return format!("{} ({:.1}GB)", clean_name, vram_gb);
+                    // Try to get VRAM usage for NVIDIA GPUs (used/total)
+                    if let Some(vram_output) = Self::run_command("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]) {
+                        if let Some(vram_line) = vram_output.lines().next() {
+                            let parts: Vec<&str> = vram_line.split(',').map(|s| s.trim()).collect();
+                            if parts.len() == 2 {
+                                if let (Ok(used_mb), Ok(total_mb)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                                    let used_gb = used_mb as f64 / 1024.0;
+                                    let total_gb = total_mb as f64 / 1024.0;
+                                    return format!("{} ({:.1}GB / {:.1}GB)", clean_name, used_gb, total_gb);
+                                }
                             }
                         }
                     }
@@ -491,9 +495,9 @@ impl SystemInfo {
                     if let Some(gpu) = line.split(": ").nth(1) {
                         let clean_gpu_name = Self::parse_gpu_name(gpu);
                         
-                        // Try to get VRAM for AMD/Intel GPUs
-                        if let Some(vram_gb) = Self::get_non_nvidia_vram() {
-                            return format!("{} ({:.1}GB)", clean_gpu_name, vram_gb);
+                        // Try to get VRAM usage for AMD/Intel GPUs
+                        if let Some((used_gb, total_gb)) = Self::get_non_nvidia_vram_usage() {
+                            return format!("{} ({:.1}GB / {:.1}GB)", clean_gpu_name, used_gb, total_gb);
                         }
                         
                         return clean_gpu_name;
@@ -1472,7 +1476,7 @@ impl SystemInfo {
         "N/A".to_string()
     }
 
-    fn get_non_nvidia_vram() -> Option<f64> {
+    fn get_non_nvidia_vram_usage() -> Option<(f64, f64)> {
         // Method 1: Try glxinfo for OpenGL memory info
         if let Some(output) = Self::run_command("glxinfo", &[]) {
             for line in output.lines() {
@@ -1482,7 +1486,8 @@ impl SystemInfo {
                     if let Some(memory_part) = line.split(":").nth(1) {
                         if let Some(mb_str) = memory_part.trim().split_whitespace().next() {
                             if let Ok(mb) = mb_str.parse::<u32>() {
-                                return Some(mb as f64 / 1024.0);
+                                let total_gb = mb as f64 / 1024.0;
+                                return Some((0.0, total_gb)); // Can't get used from glxinfo
                             }
                         }
                     }
@@ -1492,7 +1497,8 @@ impl SystemInfo {
                     if let Some(memory_part) = line.split(":").nth(1) {
                         if let Some(mb_str) = memory_part.trim().split_whitespace().next() {
                             if let Ok(mb) = mb_str.parse::<u32>() {
-                                return Some(mb as f64 / 1024.0);
+                                let total_gb = mb as f64 / 1024.0;
+                                return Some((0.0, total_gb)); // Can't get used from glxinfo
                             }
                         }
                     }
@@ -1506,24 +1512,34 @@ impl SystemInfo {
                 let path = entry.path();
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with("card") && !name.contains("-") {
-                        // Try to read VRAM info from AMD GPU
+                        // Try to read both used and total VRAM from AMD GPU
+                        let vram_used_path = path.join("device/mem_info_vram_used");
                         let vram_total_path = path.join("device/mem_info_vram_total");
-                        if let Ok(vram_content) = std::fs::read_to_string(&vram_total_path) {
-                            if let Ok(vram_bytes) = vram_content.trim().parse::<u64>() {
-                                let vram_gb = vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                                if vram_gb > 0.1 { // Only return if we have significant VRAM
-                                    return Some(vram_gb);
+                        
+                        if let (Ok(used_content), Ok(total_content)) = (
+                            std::fs::read_to_string(&vram_used_path),
+                            std::fs::read_to_string(&vram_total_path)
+                        ) {
+                            if let (Ok(used_bytes), Ok(total_bytes)) = (
+                                used_content.trim().parse::<u64>(),
+                                total_content.trim().parse::<u64>()
+                            ) {
+                                let used_gb = used_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                                let total_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                                if total_gb > 0.1 { // Only return if we have significant VRAM
+                                    return Some((used_gb, total_gb));
                                 }
                             }
                         }
                         
-                        // Alternative AMD path
+                        // Fallback: Try to get total only from alternative paths
                         let vram_size_path = path.join("device/vram_size");
                         if let Ok(vram_content) = std::fs::read_to_string(&vram_size_path) {
                             if let Ok(vram_bytes) = vram_content.trim().parse::<u64>() {
-                                let vram_gb = vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                                if vram_gb > 0.1 {
-                                    return Some(vram_gb);
+                                let total_gb = vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                                if total_gb > 0.1 {
+                                    // Can't get used VRAM, so return 0 as used
+                                    return Some((0.0, total_gb));
                                 }
                             }
                         }
@@ -1549,13 +1565,14 @@ impl SystemInfo {
                             if size_str.ends_with("M") {
                                 if let Ok(mb) = size_str.trim_end_matches('M').parse::<u32>() {
                                     if mb >= 512 { // Only consider if >= 512MB (likely VRAM)
-                                        return Some(mb as f64 / 1024.0);
+                                        let total_gb = mb as f64 / 1024.0;
+                                        return Some((0.0, total_gb)); // Can't get used from lspci
                                     }
                                 }
                             } else if size_str.ends_with("G") {
                                 if let Ok(gb) = size_str.trim_end_matches('G').parse::<f64>() {
                                     if gb >= 0.5 {
-                                        return Some(gb);
+                                        return Some((0.0, gb)); // Can't get used from lspci
                                     }
                                 }
                             }
