@@ -229,23 +229,42 @@ impl Display {
             ("battery", "Battery", modules.battery),
             ("locale", "Locale", modules.locale),
         ];
+        
+        // Calculate maximum module name width for alignment if enabled
+        let max_name_width = if separator_config.align_separator {
+            module_order
+                .iter()
+                .filter(|(_, _, enabled)| *enabled)
+                .map(|(_, display_name, _)| display_name.len())
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         for (key, display_name, enabled) in module_order {
             if enabled {
                 let lookup_key = key.to_uppercase();
                 if let Some(value) = system_info.data.get(&lookup_key) {
-    let trimmed_value = value.trim();
-    // Only add non-empty, non-Unknown values
-    if !trimmed_value.is_empty() && trimmed_value != "Unknown" {
-        let line = format!(
-            "{}{}{}",
-            self.apply_color(display_name, &colors.title),
-            self.apply_color(&separator, &colors.separator),
-            self.apply_color(trimmed_value, &colors.info)
-        );
-        lines.push(line);
-    }
-}
+                    let trimmed_value = value.trim();
+                    // Only add non-empty, non-Unknown values
+                    if !trimmed_value.is_empty() && trimmed_value != "Unknown" {
+                        // Pad module name for alignment if enabled
+                        let padded_name = if separator_config.align_separator {
+                            format!("{:<width$}", display_name, width = max_name_width)
+                        } else {
+                            display_name.to_string()
+                        };
+                        
+                        let line = format!(
+                            "{}{}{}",
+                            self.apply_color(&padded_name, &colors.title),
+                            self.apply_color(&separator, &colors.separator),
+                            self.apply_color(trimmed_value, &colors.info)
+                        );
+                        lines.push(line);
+                    }
+                }
             }
         }
         

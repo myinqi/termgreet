@@ -8,8 +8,9 @@ title = "System Information"
 # Separator configuration between module names and values
 [general.separator]
 symbol = "->"        # The separator character/string (e.g., "->", ":", "=", "|")
-space_before = 1     # Number of spaces before the separator
-space_after = 1      # Number of spaces after the separator
+space_before = 2     # Number of spaces before the separator
+space_after = 6     # Number of spaces after the separator
+align_separator = true  # Align all separators in a column by padding module names
 
 [general.colors]
 title = "bright_cyan"

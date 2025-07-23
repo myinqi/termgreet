@@ -24,6 +24,7 @@ pub struct SeparatorConfig {
     pub symbol: String,
     pub space_before: u8,
     pub space_after: u8,
+    pub align_separator: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -89,6 +90,7 @@ impl Default for Config {
                     symbol: "->".to_string(),
                     space_before: 1,
                     space_after: 1,
+                    align_separator: false,
                 },
                 colors: ColorsConfig {
                     title: "bright_cyan".to_string(),
