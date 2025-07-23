@@ -283,7 +283,7 @@ Contributions are welcome! Please:
 
 ## 📄 License
 
-[License to be added]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📈 Comparison with Other Tools
 
@@ -300,4 +300,4 @@ Contributions are welcome! Please:
 | Configurable Separators | ✅ | ❌ | ❌ |
 | Speed | ⚡ | ⚡⚡ | 🐌 |
 | Customizability | ✅ | ✅ | ✅ |
-| Written in Rust | ✅ | ✅ | ❌ |
+| Written in Rust | ✅ | ❌ | ❌ |
