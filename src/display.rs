@@ -208,6 +208,7 @@ impl Display {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             use std::time::{SystemTime, UNIX_EPOCH};
+            use std::path::Path;
             
             // Create a seed based on current time for randomness
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -316,21 +317,27 @@ impl Display {
         
         // For Kitty Graphics Protocol, we need to implement true side-by-side layout
         if self.config.display.prefer_kitty_graphics && self.is_kitty_terminal() {
-            // Render the image with Kitty Graphics Protocol
-            self.render_image_to_terminal(image_path)?;
-            
-            // Calculate image height in terminal cells for cursor positioning
+            // Calculate dimensions
             let image_height = self.config.display.image_size.height as usize;
-            
-            // Move cursor up to the top of the content and position it to the right
-            // ANSI escape sequence: \x1b[{rows}A moves cursor up, \x1b[{cols}C moves cursor right
             let info_start_col = image_width + padding;
-            
-            // Calculate how far up we need to move to accommodate ALL modules
             let total_content_height = std::cmp::max(image_height, info_lines.len());
             
-            // Move cursor to the top-right position for info display
-            print!("\x1b[{}A", total_content_height); // Move cursor up by total content height
+            // Strategy: Reserve space for all content first, then render image and modules
+            // This ensures the terminal has enough space allocated
+            
+            // Print empty lines to reserve space for all content
+            for _ in 0..total_content_height {
+                println!();
+            }
+            
+            // Move cursor back to the beginning of our reserved space
+            print!("\x1b[{}A", total_content_height);
+            
+            // Render the image with Kitty Graphics Protocol at current position
+            self.render_image_to_terminal(image_path)?;
+            
+            // Move cursor back up to align with top of image for module output
+            print!("\x1b[{}A", image_height);
             print!("\x1b[{}C", info_start_col); // Move cursor right to info column
             
             // Print each info line with proper cursor positioning
@@ -343,59 +350,64 @@ impl Display {
                 print!("{}", line);
             }
             
-            // Move cursor to end position (below the content)
-            // Always position cursor below ALL info lines, not just image height
-            let final_position = std::cmp::max(image_height, info_lines.len());
-            let current_line = info_lines.len();
-            let remaining_lines = if final_position > current_line {
-                final_position - current_line
+            // Move cursor to the end of our reserved space
+            let remaining_lines = if total_content_height > info_lines.len() {
+                total_content_height - info_lines.len()
             } else {
                 0
             };
+            
             if remaining_lines > 0 {
-                print!("\x1b[{}B", remaining_lines); // Move cursor down
+                print!("\x1b[{}B", remaining_lines);
             }
             print!("\x1b[1G"); // Move cursor to beginning of line
-            println!(); // Add final newline
             
         } else {
             // Use block-based rendering for true side-by-side layout
-            // This works in all terminals, including Kitty/Ghostty
-            // First, render image to memory as text blocks
-            let image_lines = self.render_image_as_text_blocks(image_path)?;
+            return self.show_horizontal_layout_with_blocks(image_path, info_lines);
+        }
+        
+        Ok(())
+    }
+    
+    fn show_horizontal_layout_with_blocks(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
+        // Use block-based rendering for true side-by-side layout
+        // This works in all terminals, including Kitty/Ghostty
+        let image_lines = self.render_image_as_text_blocks(&image_path.to_path_buf())?;
+        
+        // Calculate layout dimensions
+        let image_width = self.config.display.image_size.width as usize;
+        let padding = self.config.display.padding;
+        
+        // Always show ALL info lines, even if they exceed image height
+        let max_lines = std::cmp::max(image_lines.len(), info_lines.len());
+        
+        // Print side-by-side layout
+        for i in 0..max_lines {
+            let mut line_output = String::new();
             
-            // Calculate layout dimensions
-            let _info_start_col = image_width + padding * 2;
-            // Always show ALL info lines, even if they exceed image height
-            let max_lines = std::cmp::max(image_lines.len(), info_lines.len());
-            
-            // Print side-by-side layout
-            for i in 0..max_lines {
-                let mut line_output = String::new();
-                
-                // Add image part (left side)
-                if i < image_lines.len() {
-                    line_output.push_str(&image_lines[i]);
-                    // Pad to ensure consistent spacing
-                    let visible_width = self.get_visible_width(&image_lines[i]);
-                    if visible_width < image_width {
-                        line_output.push_str(&" ".repeat(image_width - visible_width));
-                    }
-                } else {
-                    // Empty space where image would be
-                    line_output.push_str(&" ".repeat(image_width));
+            // Add image part (left side)
+            if i < image_lines.len() {
+                line_output.push_str(&image_lines[i]);
+                // Pad to ensure consistent spacing
+                let visible_width = self.get_visible_width(&image_lines[i]);
+                if visible_width < image_width {
+                    line_output.push_str(&" ".repeat(image_width - visible_width));
                 }
-                
-                // Add padding between image and info
-                line_output.push_str(&" ".repeat(padding));
-                
-                // Add info part (right side)
-                if i < info_lines.len() {
-                    line_output.push_str(&info_lines[i]);
-                }
-                
-                println!("{}", line_output);
+            } else {
+                // Empty space where image would be
+                line_output.push_str(&" ".repeat(image_width));
             }
+            
+            // Add padding between image and info
+            line_output.push_str(&" ".repeat(padding as usize));
+            
+            // Add info part (right side)
+            if i < info_lines.len() {
+                line_output.push_str(&info_lines[i]);
+            }
+            
+            println!("{}", line_output);
         }
         
         Ok(())
@@ -494,10 +506,10 @@ impl Display {
             ("gpu_temp", "GPU Temp", modules.gpu_temp),
             ("gpu_driver", "GPU Driver", modules.gpu_driver),
             ("memory", "Memory", modules.memory),
-            ("disk", "Disk", modules.disk),
             ("battery", "Battery", modules.battery),
             ("network", "Network", modules.network),
             ("public_ip", "Public IP", modules.public_ip),
+            ("disk", "Disk", modules.disk),            
             ("dysk", "Drives", modules.dysk),
         ];
         
