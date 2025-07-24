@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::process::Command;
+use std::sync::OnceLock;
 use sysinfo::System;
+use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct SystemInfo {
@@ -11,98 +13,252 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn gather_with_config(config: &crate::config::Config) -> Self {
-        let mut data = HashMap::new();
-        let mut sys = System::new_all();
-        sys.refresh_all();
-
-        // OS Information
-        data.insert("OS".to_string(), Self::get_os_info());
-        data.insert("KERNEL".to_string(), Self::get_kernel_version());
-        data.insert("LINUX".to_string(), Self::get_linux_info());
-        data.insert("UPTIME".to_string(), Self::format_uptime(System::uptime()));
-        data.insert("OS_AGE".to_string(), Self::get_os_age());
-
-        // Desktop Environment / Window Manager
-        data.insert("DE".to_string(), Self::get_desktop_environment());
-        data.insert("WM".to_string(), Self::get_window_manager());
-
-        // Shell and Terminal - use version functions if enabled
-        if config.modules.show_versions {
-            data.insert("SHELL".to_string(), Self::get_shell_with_version());
-            data.insert("TERMINAL".to_string(), Self::get_terminal_with_version());
-        } else {
-            data.insert("SHELL".to_string(), Self::get_shell());
-            data.insert("TERMINAL".to_string(), Self::get_terminal());
-        }
-        data.insert("TERMINAL_SHELL_COMBINED".to_string(), Self::get_terminal_shell_combined(config.modules.show_versions));
-        data.insert("FONT".to_string(), Self::get_font_info());
-        data.insert("USER".to_string(), Self::get_user_info());
-        data.insert("HOSTNAME".to_string(), Self::get_hostname_info());
-        data.insert("USER_AT_HOST".to_string(), Self::get_user_at_host_info());
-
-        // Hardware Information
-        data.insert("CPU".to_string(), Self::get_cpu_info(&sys));
-        data.insert("CPU_TEMP".to_string(), Self::get_cpu_temperature());
-        data.insert("GPU".to_string(), Self::get_gpu_info());
-        data.insert("GPU_TEMP".to_string(), Self::get_gpu_temperature());
-        data.insert("TEMP_COMBINED".to_string(), Self::get_temp_combined());
-        data.insert("GPU_DRIVER".to_string(), Self::get_gpu_driver_info());
-        data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
-        data.insert("DISK".to_string(), Self::get_disk_info(&sys));
-        data.insert("DYSK".to_string(), Self::get_dysk_info());
-
-        // Display Information
-        data.insert("RESOLUTION".to_string(), Self::get_resolution());
+        // Initialize optimized sysinfo - only refresh what we need
+        let sys = Self::create_optimized_system(config);
         
-        // Network Information
-        data.insert("NETWORK".to_string(), Self::get_network_info());
-        data.insert("PUBLIC_IP".to_string(), Self::get_public_ip_info());
-
-        // Additional modules that might be missing
-        data.insert("THEME".to_string(), Self::get_theme());
-        data.insert("ICONS".to_string(), Self::get_icons());
-
-        // Battery (if available)
-        if let Some(battery) = Self::get_battery_info() {
-            data.insert("BATTERY".to_string(), battery);
+        // Pre-cache commonly used files
+        Self::cache_system_files();
+        
+        // Define all possible module collectors with their conditions
+        let module_collectors: Vec<(&str, Box<dyn Fn() -> String + Send + Sync>)> = vec![
+            // OS Information - Fast, no external commands
+            ("OS", Box::new(|| Self::get_os_info())),
+            ("KERNEL", Box::new(|| Self::get_kernel_version())),
+            ("LINUX", Box::new(|| Self::get_linux_info())),
+            ("UPTIME", Box::new(|| Self::format_uptime(System::uptime()))),
+            ("OS_AGE", Box::new(|| Self::get_os_age())),
+            
+            // Environment - Medium speed
+            ("DE", Box::new(|| Self::get_desktop_environment())),
+            ("WM", Box::new(|| Self::get_window_manager())),
+            ("USER", Box::new(|| Self::get_user_info())),
+            ("HOSTNAME", Box::new(|| Self::get_hostname_info())),
+            ("USER_AT_HOST", Box::new(|| Self::get_user_at_host_info())),
+            ("LOCALE", Box::new(|| Self::get_locale())),
+            ("THEME", Box::new(|| Self::get_theme())),
+            ("ICONS", Box::new(|| Self::get_icons())),
+        ];
+        
+        // System-dependent collectors (need sys reference)
+        let sys_collectors: Vec<(&str, Box<dyn Fn(&System) -> String + Send + Sync>)> = vec![
+            ("CPU", Box::new(|sys| Self::get_cpu_info(sys))),
+            ("MEMORY", Box::new(|sys| Self::get_memory_info(sys))),
+            ("DISK", Box::new(|sys| Self::get_disk_info(sys))),
+        ];
+        
+        // Slow collectors (external commands) - these benefit most from parallelization
+        let slow_collectors: Vec<(&str, Box<dyn Fn() -> String + Send + Sync>)> = vec![
+            ("GPU", Box::new(|| Self::get_gpu_info())),
+            ("GPU_DRIVER", Box::new(|| Self::get_gpu_driver_info())),
+            ("RESOLUTION", Box::new(|| Self::get_resolution())),
+            ("NETWORK", Box::new(|| Self::get_network_info())),
+            ("PUBLIC_IP", Box::new(|| Self::get_public_ip_info())),
+            ("DYSK", Box::new(|| Self::get_dysk_info())),
+            ("CPU_TEMP", Box::new(|| Self::get_cpu_temperature())),
+            ("GPU_TEMP", Box::new(|| Self::get_gpu_temperature())),
+            ("TEMP_COMBINED", Box::new(|| Self::get_temp_combined())),
+            ("FONT", Box::new(|| Self::get_font_info())),
+        ];
+        
+        // Version-dependent collectors
+        let version_collectors: Vec<(&str, Box<dyn Fn(bool) -> String + Send + Sync>)> = vec![
+            ("SHELL", Box::new(|show_versions| {
+                if show_versions { Self::get_shell_with_version() } else { Self::get_shell() }
+            })),
+            ("TERMINAL", Box::new(|show_versions| {
+                if show_versions { Self::get_terminal_with_version() } else { Self::get_terminal() }
+            })),
+            ("TERMINAL_SHELL_COMBINED", Box::new(|show_versions| {
+                Self::get_terminal_shell_combined(show_versions)
+            })),
+        ];
+        
+        // Parallel collection of fast modules (only enabled ones)
+        let fast_results: Vec<(String, String)> = module_collectors
+            .into_par_iter()
+            .filter_map(|(key, collector)| {
+                let should_collect = match key {
+                    "OS" => config.modules.os,
+                    "KERNEL" => config.modules.kernel,
+                    "LINUX" => config.modules.linux,
+                    "UPTIME" => config.modules.uptime,
+                    "OS_AGE" => config.modules.os_age,
+                    "DE" => config.modules.de,
+                    "WM" => config.modules.wm,
+                    "USER" => config.modules.user,
+                    "HOSTNAME" => config.modules.hostname,
+                    "USER_AT_HOST" => config.modules.user_at_host,
+                    "LOCALE" => config.modules.locale,
+                    "THEME" => config.modules.theme,
+                    "ICONS" => config.modules.icons,
+                    _ => false,
+                };
+                
+                if should_collect {
+                    Some((key.to_string(), collector()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Parallel collection of slow modules (only enabled ones)
+        let slow_results: Vec<(String, String)> = slow_collectors
+            .into_par_iter()
+            .filter_map(|(key, collector)| {
+                let should_collect = match key {
+                    "GPU" => config.modules.gpu,
+                    "GPU_DRIVER" => config.modules.gpu_driver,
+                    "RESOLUTION" => config.modules.resolution,
+                    "NETWORK" => config.modules.network,
+                    "PUBLIC_IP" => config.modules.public_ip,
+                    "DYSK" => config.modules.dysk,
+                    "CPU_TEMP" => config.modules.cpu_temp,
+                    "GPU_TEMP" => config.modules.gpu_temp,
+                    "TEMP_COMBINED" => config.modules.temp_combined,
+                    "FONT" => config.modules.font,
+                    _ => false,
+                };
+                
+                if should_collect {
+                    Some((key.to_string(), collector()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Sequential collection of system-dependent modules
+        let sys_results: Vec<(String, String)> = sys_collectors
+            .into_iter()
+            .filter_map(|(key, collector)| {
+                let should_collect = match key {
+                    "CPU" => config.modules.cpu,
+                    "MEMORY" => config.modules.memory,
+                    "DISK" => config.modules.disk,
+                    _ => false,
+                };
+                
+                if should_collect {
+                    Some((key.to_string(), collector(&sys)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Version-dependent modules
+        let version_results: Vec<(String, String)> = version_collectors
+            .into_iter()
+            .filter_map(|(key, collector)| {
+                let should_collect = match key {
+                    "SHELL" => config.modules.shell,
+                    "TERMINAL" => config.modules.terminal,
+                    "TERMINAL_SHELL_COMBINED" => config.modules.terminal_shell_combined,
+                    _ => false,
+                };
+                
+                if should_collect {
+                    Some((key.to_string(), collector(config.modules.show_versions)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Optional modules (only if available and enabled)
+        let mut optional_results = Vec::new();
+        
+        if config.modules.battery {
+            if let Some(battery) = Self::get_battery_info() {
+                optional_results.push(("BATTERY".to_string(), battery));
+            }
         }
-
-        // Package count (if available)
-        if let Some(packages) = Self::get_package_count() {
-            data.insert("PACKAGES".to_string(), packages);
+        
+        if config.modules.packages {
+            if let Some(packages) = Self::get_package_count() {
+                optional_results.push(("PACKAGES".to_string(), packages));
+            }
         }
-
-        // Flatpak packages (if available)
-        if let Some(flatpak_packages) = Self::get_flatpak_packages() {
-            data.insert("FLATPAK_PACKAGES".to_string(), flatpak_packages);
+        
+        if config.modules.flatpak_packages {
+            if let Some(flatpak_packages) = Self::get_flatpak_packages() {
+                optional_results.push(("FLATPAK_PACKAGES".to_string(), flatpak_packages));
+            }
         }
-
-        // Combined packages (main + flatpak)
-        if let Some(combined_packages) = Self::get_combined_packages() {
-            data.insert("PACKAGES_COMBINED".to_string(), combined_packages);
+        
+        if config.modules.packages_combined {
+            if let Some(combined_packages) = Self::get_combined_packages() {
+                optional_results.push(("PACKAGES_COMBINED".to_string(), combined_packages));
+            }
         }
-
-        // Locale
-        data.insert("LOCALE".to_string(), Self::get_locale());
-
+        
+        // Combine all results
+        let mut data = HashMap::new();
+        
+        for (key, value) in fast_results.into_iter()
+            .chain(slow_results.into_iter())
+            .chain(sys_results.into_iter())
+            .chain(version_results.into_iter())
+            .chain(optional_results.into_iter()) {
+            data.insert(key, value);
+        }
+        
         Self { data }
+    }
+    
+    fn create_optimized_system(config: &crate::config::Config) -> System {
+        let mut sys = System::new();
+        
+        // Only refresh components we actually need
+        if config.modules.cpu {
+            sys.refresh_cpu();
+        }
+        if config.modules.memory {
+            sys.refresh_memory();
+        }
+        // Note: disk info is gathered via external commands, not sysinfo
+        
+        sys
+    }
+    
+    // Cache commonly accessed files to avoid repeated reads
+    fn cache_system_files() {
+        static OS_RELEASE: OnceLock<Option<String>> = OnceLock::new();
+        static PROC_VERSION: OnceLock<Option<String>> = OnceLock::new();
+        static PROC_UPTIME: OnceLock<Option<String>> = OnceLock::new();
+        
+        // Pre-read common files
+        OS_RELEASE.get_or_init(|| fs::read_to_string("/etc/os-release").ok());
+        PROC_VERSION.get_or_init(|| fs::read_to_string("/proc/version").ok());
+        PROC_UPTIME.get_or_init(|| fs::read_to_string("/proc/uptime").ok());
+    }
+    
+    // Helper to get cached file content
+    fn get_cached_file(path: &str) -> Option<String> {
+        static OS_RELEASE: OnceLock<Option<String>> = OnceLock::new();
+        static PROC_VERSION: OnceLock<Option<String>> = OnceLock::new();
+        
+        match path {
+            "/etc/os-release" => OS_RELEASE.get_or_init(|| fs::read_to_string(path).ok()).clone(),
+            "/proc/version" => PROC_VERSION.get_or_init(|| fs::read_to_string(path).ok()).clone(),
+            _ => fs::read_to_string(path).ok(),
+        }
     }
 
     fn get_os_info() -> String {
-        if let Ok(content) = fs::read_to_string("/etc/os-release") {
+        if let Some(content) = Self::get_cached_file("/etc/os-release") {
             for line in content.lines() {
                 if line.starts_with("PRETTY_NAME=") {
-                    return line.split('=').nth(1)
+                    return line.split('=')
+                        .nth(1)
                         .unwrap_or("Unknown")
                         .trim_matches('"')
                         .to_string();
                 }
             }
         }
-        
-        // Fallback to uname
-        Self::run_command("uname", &["-sr"])
-            .unwrap_or_else(|| "Unknown OS".to_string())
+        "Unknown".to_string()
     }
 
     fn get_kernel_version() -> String {

@@ -1,7 +1,7 @@
 use anyhow::Result;
-use colored::*;
+use colored::{Colorize, Color, ColoredString};
+use image;
 use unicode_width::UnicodeWidthStr;
-use viuer::{Config as ViuerConfig, print_from_file};
 use crate::config::{Config, MotdConfig};
 use crate::system_info::SystemInfo;
 use crate::kitty_graphics::KittyGraphics;
@@ -232,11 +232,10 @@ impl Display {
 
     
     fn render_image_to_terminal(&self, image_path: &std::path::Path) -> Result<()> {
-        let width = self.config.display.image_size.width;
-        let height = self.config.display.image_size.height;
-        
         // Try Kitty Graphics Protocol if preferred and supported
         if self.config.display.prefer_kitty_graphics && self.kitty_graphics.supports_kitty {
+            let width = self.config.display.image_size.width;
+            let height = self.config.display.image_size.height;
             let cell_width = self.config.display.image_size.cell_width;
             let cell_height = self.config.display.image_size.cell_height;
             match self.kitty_graphics.render_image(image_path, width, height, cell_width, cell_height) {
@@ -244,34 +243,21 @@ impl Display {
                     return Ok(());
                 }
                 Err(e) => {
-                    eprintln!("[Warning] Kitty Graphics failed: {}, falling back to viuer", e);
+                    eprintln!("[Warning] Kitty Graphics failed: {}, falling back to block rendering", e);
                 }
             }
         }
         
-        // Fallback to viuer for terminals that don't support Kitty Graphics Protocol
-        // Apply cell dimensions scaling for consistent behavior
-        let cell_width = self.config.display.image_size.cell_width;
-        let cell_height = self.config.display.image_size.cell_height;
+        // Fallback to our custom block rendering for all other terminals
+        let image_path_buf = image_path.to_path_buf();
+        let block_lines = self.render_image_as_text_blocks(&image_path_buf)?;
         
-        // Calculate effective dimensions based on cell size (similar to Kitty Graphics logic)
-        let effective_width = if cell_width > 20 { width / 2 } else { width };
-        let effective_height = if cell_height < 15 { height / 2 } else { height };
+        // Print each line of the block-rendered image
+        for line in block_lines {
+            println!("{}", line);
+        }
         
-        let viuer_config = ViuerConfig {
-            transparent: true,
-            absolute_offset: false,
-            width: Some(effective_width),
-            height: Some(effective_height),
-            use_kitty: true,  // viuer's own kitty support (different from our implementation)
-            use_iterm: true,  // Enable iTerm2 graphics protocol
-            truecolor: true,  // Use 24-bit colors for better color accuracy
-            ..Default::default()
-        };
-
-        print_from_file(image_path, &viuer_config)
-            .map(|_| ()) // Ignore the returned dimensions
-            .map_err(|e| anyhow::anyhow!("Failed to display image: {}", e))
+        Ok(())
     }
     
     fn show_image_with_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
