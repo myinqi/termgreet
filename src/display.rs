@@ -208,7 +208,6 @@ impl Display {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             use std::time::{SystemTime, UNIX_EPOCH};
-            use std::path::Path;
             
             // Create a seed based on current time for randomness
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -454,6 +453,7 @@ impl Display {
             "gpu_driver" => &display_names.gpu_driver,
             "memory" => &display_names.memory,
             "disk" => &display_names.disk,
+            "dysk" => &display_names.dysk,
             "battery" => &display_names.battery,
             "locale" => &display_names.locale,
             _ => &None,
