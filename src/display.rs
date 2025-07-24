@@ -551,13 +551,42 @@ impl Display {
                             display_name
                         };
                         
-                        let line = format!(
-                            "{}{}{}",
-                            self.apply_color(&padded_name, &colors.module),
-                            self.apply_color(&separator, &colors.separator),
-                            self.apply_color(trimmed_value, &colors.info)
-                        );
-                        lines.push(line);
+                        // Handle multi-line modules (like dysk)
+                        let value_lines: Vec<&str> = trimmed_value.lines().collect();
+                        
+                        if value_lines.len() > 1 {
+                            // Multi-line module: first line with module name, subsequent lines indented
+                            for (i, value_line) in value_lines.iter().enumerate() {
+                                if i == 0 {
+                                    // First line with module name
+                                    let line = format!(
+                                        "{}{}{}",
+                                        self.apply_color(&padded_name, &colors.module),
+                                        self.apply_color(&separator, &colors.separator),
+                                        self.apply_color(value_line, &colors.info)
+                                    );
+                                    lines.push(line);
+                                } else {
+                                    // Subsequent lines: indent to align with the value column
+                                    let indent_width = padded_name.width() + separator.width();
+                                    let indented_line = format!(
+                                        "{}{}",
+                                        " ".repeat(indent_width),
+                                        self.apply_color(value_line, &colors.info)
+                                    );
+                                    lines.push(indented_line);
+                                }
+                            }
+                        } else {
+                            // Single-line module
+                            let line = format!(
+                                "{}{}{}",
+                                self.apply_color(&padded_name, &colors.module),
+                                self.apply_color(&separator, &colors.separator),
+                                self.apply_color(trimmed_value, &colors.info)
+                            );
+                            lines.push(line);
+                        }
                     }
                 }
             }

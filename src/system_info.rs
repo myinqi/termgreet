@@ -1927,16 +1927,20 @@ impl SystemInfo {
                         // Create progress bar
                         let progress_bar = Self::create_progress_bar(usage_num);
                         
-                        // Format the drive info
+                        // Clean device name (remove /dev/ prefix)
+                        let clean_device = device.strip_prefix("/dev/").unwrap_or(device);
+                        
+                        // Format the drive info in the new order:
+                        // Progress Bar, Percent, Device Name, Usage, Filesystem, Mount Point
                         let drive_info = format!(
-                            "{} {} {}% {} {}/{} [{}]",
-                            mount_point,
+                            "{} {}% {} {}/{} [{}] {}",
                             progress_bar,
                             usage_num,
-                            device,
+                            clean_device,
                             used,
                             total,
-                            filesystem
+                            filesystem,
+                            mount_point
                         );
                         
                         mount_info.push(drive_info);
@@ -1974,7 +1978,7 @@ impl SystemInfo {
         if mount_info.is_empty() {
             "No mounted drives found".to_string()
         } else {
-            mount_info.join(" • ")
+            mount_info.join("\n")
         }
     }
     
@@ -2054,15 +2058,18 @@ impl SystemInfo {
                     
                     let progress_bar = Self::create_progress_bar(usage_num);
                     
+                    // Clean device name (remove /dev/ prefix)
+                    let clean_device = device.strip_prefix("/dev/").unwrap_or(device);
+                    
                     return Some(format!(
-                        "{} {} {}% {} {}/{} [{}]",
-                        mount_point,
+                        "{} {}% {} {}/{} [{}] {}",
                         progress_bar,
                         usage_num,
-                        device,
+                        clean_device,
                         used,
                         total,
-                        filesystem
+                        filesystem,
+                        mount_point
                     ));
                 }
             }
