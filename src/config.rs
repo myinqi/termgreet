@@ -44,6 +44,10 @@ pub struct DisplayConfig {
     pub prefer_kitty_graphics: bool,
     pub padding: u8,
     pub layout: String,
+    pub show_border: bool,
+    pub border_top: String,
+    pub border_bottom: String,
+    pub border_color: String,
     pub block_rendering: BlockRenderingConfig,
 }
 
@@ -179,7 +183,11 @@ impl Default for Config {
                 },
                 prefer_kitty_graphics: true,
                 padding: 2,
-                layout: "vertical".to_string(),
+                layout: "horizontal".to_string(),
+                show_border: false,
+                border_top: "┌──────────────────────────────────────────────┐".to_string(),
+                border_bottom: "└──────────────────────────────────────────────┘".to_string(),
+                border_color: "bright_blue".to_string(),
                 block_rendering: BlockRenderingConfig {
                     block_style: "default".to_string(),
                     custom_blocks: vec!["█".to_string(), "▓".to_string(), "▒".to_string(), "░".to_string(), " ".to_string()],

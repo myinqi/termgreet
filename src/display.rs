@@ -275,44 +275,24 @@ impl Display {
     }
     
     fn show_image_with_info(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
-        // For consistency, use the same rendering approach as horizontal layout
-        // but display image above info instead of side-by-side
+        let config = &self.config.display;
         
-        // Try Kitty Graphics Protocol if preferred and supported
-        if self.config.display.prefer_kitty_graphics && self.is_kitty_terminal() {
-            match self.render_image_to_terminal(image_path) {
-                Ok(_) => {
-                    println!(); // Add spacing after image
-                    
-                    // Show system info below the image
-                    for line in info_lines.iter() {
-                        println!("{}", line);
-                    }
-                }
-                Err(_) => {
-                    // Failed to render Kitty graphics, fall back to block rendering
-                    eprintln!("[Warning] Kitty Graphics failed, falling back to block rendering");
-                    self.render_vertical_with_blocks(image_path, info_lines)?;
-                }
-            }
+        // Check if we should use Kitty graphics protocol
+        let use_kitty = config.prefer_kitty_graphics && self.is_kitty_terminal();
+        
+        if use_kitty {
+            self.show_horizontal_layout(&image_path.to_path_buf(), info_lines)?;
         } else {
-            // Use consistent block-based rendering (same as horizontal layout)
-            self.render_vertical_with_blocks(image_path, info_lines)?;
-        }
-        
-        // Add padding
-        for _ in 0..self.config.display.padding {
-            println!();
+            self.show_horizontal_layout_with_blocks(image_path, info_lines)?;
         }
         
         Ok(())
     }
 
     fn show_horizontal_layout(&self, image_path: &std::path::PathBuf, info_lines: &[String]) -> Result<()> {
-        // Get terminal dimensions
-        let _term_width = 120; // Conservative estimate for wide terminals
         let image_width = self.config.display.image_size.width as usize;
         let padding = self.config.display.padding as usize;
+        let border_color = Display::get_color(&self.config.display.border_color);
         
         // For Kitty Graphics Protocol, we need to implement true side-by-side layout
         if self.config.display.prefer_kitty_graphics && self.is_kitty_terminal() {
@@ -321,16 +301,17 @@ impl Display {
             let info_start_col = image_width + padding;
             let total_content_height = std::cmp::max(image_height, info_lines.len());
             
-            // Strategy: Reserve space for all content first, then render image and modules
-            // This ensures the terminal has enough space allocated
+            // Add border height to total if enabled
+            let border_height = if self.config.display.show_border { 4 } else { 0 }; // top border + spacing + bottom border + spacing
+            let total_space_needed = total_content_height + border_height;
             
             // Print empty lines to reserve space for all content
-            for _ in 0..total_content_height {
+            for _ in 0..total_space_needed {
                 println!();
             }
             
             // Move cursor back to the beginning of our reserved space
-            print!("\x1b[{}A", total_content_height);
+            print!("\x1b[{}A", total_space_needed);
             
             // Render the image with Kitty Graphics Protocol at current position
             self.render_image_to_terminal(image_path)?;
@@ -338,6 +319,13 @@ impl Display {
             // Move cursor back up to align with top of image for module output
             print!("\x1b[{}A", image_height);
             print!("\x1b[{}C", info_start_col); // Move cursor right to info column
+            
+            // Render top border for module area if enabled
+            if self.config.display.show_border {
+                print!("{}", self.render_border(&self.config.display.border_top, border_color));
+                print!("\x1b[1B"); // Move cursor down one line
+                print!("\x1b[{}G", info_start_col + 1); // Move cursor to info column
+            }
             
             // Print each info line with proper cursor positioning
             for (i, line) in info_lines.iter().enumerate() {
@@ -349,9 +337,16 @@ impl Display {
                 print!("{}", line);
             }
             
+            // Render bottom border for module area if enabled
+            if self.config.display.show_border {
+                print!("\x1b[1B"); // Move cursor down one line
+                print!("\x1b[{}G", info_start_col + 1); // Move cursor to info column
+                print!("{}", self.render_border(&self.config.display.border_bottom, border_color));
+            }
+            
             // Move cursor to the end of our reserved space
-            let remaining_lines = if total_content_height > info_lines.len() {
-                total_content_height - info_lines.len()
+            let remaining_lines = if total_space_needed > (image_height + info_lines.len() + border_height) {
+                total_space_needed - (image_height + info_lines.len() + border_height)
             } else {
                 0
             };
@@ -364,13 +359,15 @@ impl Display {
             
         } else {
             // Use block-based rendering for true side-by-side layout
-            return self.show_horizontal_layout_with_blocks(image_path, info_lines);
+            self.show_horizontal_layout_with_blocks(image_path, info_lines)?;
         }
         
         Ok(())
     }
     
     fn show_horizontal_layout_with_blocks(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
+        let border_color = Display::get_color(&self.config.display.border_color);
+        
         // Use block-based rendering for true side-by-side layout
         // This works in all terminals, including Kitty/Ghostty
         let image_lines = self.render_image_as_text_blocks(&image_path.to_path_buf())?;
@@ -381,6 +378,30 @@ impl Display {
         
         // Always show ALL info lines, even if they exceed image height
         let max_lines = std::cmp::max(image_lines.len(), info_lines.len());
+        
+        // Create border lines for module area if enabled
+        let border_top_line = if self.config.display.show_border {
+            format!("{}{}{}", 
+                " ".repeat(image_width), 
+                " ".repeat(padding as usize), 
+                self.render_border(&self.config.display.border_top, border_color))
+        } else {
+            String::new()
+        };
+        
+        let border_bottom_line = if self.config.display.show_border {
+            format!("{}{}{}", 
+                " ".repeat(image_width), 
+                " ".repeat(padding as usize), 
+                self.render_border(&self.config.display.border_bottom, border_color))
+        } else {
+            String::new()
+        };
+        
+        // Print top border for module area if enabled
+        if self.config.display.show_border {
+            println!("{}", border_top_line);
+        }
         
         // Print side-by-side layout
         for i in 0..max_lines {
@@ -410,14 +431,32 @@ impl Display {
             println!("{}", line_output);
         }
         
-        println!(); // Add blank line before MOTD
+        // Print bottom border for module area if enabled
+        if self.config.display.show_border {
+            println!("{}", border_bottom_line);
+        }
+        
         Ok(())
     }
 
     fn show_info_only(&self, info_lines: &[String]) {
-        // Display system information in a clean single column
+        let border_color = Display::get_color(&self.config.display.border_color);
+        
+        // Render top border if enabled
+        if self.config.display.show_border {
+            println!("{}", self.render_border(&self.config.display.border_top, border_color));
+            println!(); // Add spacing after border
+        }
+        
+        // Display system information
         for line in info_lines.iter() {
             println!("{}", line);
+        }
+        
+        // Add bottom border if enabled
+        if self.config.display.show_border {
+            println!(); // Add spacing before border
+            println!("{}", self.render_border(&self.config.display.border_bottom, border_color));
         }
         
         // Add padding
@@ -602,7 +641,34 @@ impl Display {
 }
 
 impl Display {
+    fn get_color(color_str: &str) -> Color {
+        match color_str.to_lowercase().as_str() {
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "white" => Color::White,
+            "bright_black" => Color::BrightBlack,
+            "bright_red" => Color::BrightRed,
+            "bright_green" => Color::BrightGreen,
+            "bright_yellow" => Color::BrightYellow,
+            "bright_blue" => Color::BrightBlue,
+            "bright_magenta" => Color::BrightMagenta,
+            "bright_cyan" => Color::BrightCyan,
+            "bright_white" => Color::BrightWhite,
+            _ => Color::White,
+        }
+    }
+    
+    fn render_border(&self, border_str: &str, color: Color) -> String {
+        border_str.color(color).to_string()
+    }
+    
     fn apply_color(&self, text: &str, color_name: &str) -> ColoredString {
+        
         let colored = text.normal();
         match color_name.to_lowercase().as_str() {
             "black" => colored.black(),
@@ -625,25 +691,7 @@ impl Display {
         }
     }
     
-    fn render_vertical_with_blocks(&self, image_path: &std::path::Path, info_lines: &[String]) -> Result<()> {
-        // Use the same block rendering as horizontal layout for consistency
-        let image_path_buf = image_path.to_path_buf();
-        let image_lines = self.render_image_as_text_blocks(&image_path_buf)?;
-        
-        // Print image above info (vertical layout)
-        for line in image_lines {
-            println!("{}", line);
-        }
-        
-        println!(); // Add spacing between image and info
-        
-        // Print system info below the image
-        for line in info_lines {
-            println!("{}", line);
-        }
-        
-        Ok(())
-    }
+
     
     // Helper methods for configurable block rendering
     

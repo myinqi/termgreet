@@ -42,6 +42,10 @@ show_image = true
 image_path = "~/Pictures/khrom_small.png"  # Path to your PNG image
 prefer_kitty_graphics = true  # true = prefer Kitty Protocol, false = force block-rendering fallback
 padding = 2
+show_border = false
+border_top = "┌──────────────────────────────────────────────┐"
+border_bottom = "└──────────────────────────────────────────────┘"
+border_color = "bright_blue"
 layout = "vertical"  # "vertical" or "horizontal"
 
 [display.image_size]
