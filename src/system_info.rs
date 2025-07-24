@@ -1634,6 +1634,10 @@ impl SystemInfo {
             if output.status.success() {
                 let temp_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !temp_str.is_empty() && temp_str != "N/A" {
+                    // Parse as float and format with one decimal place
+                    if let Ok(temp_float) = temp_str.parse::<f32>() {
+                        return format!("{:.1}°C", temp_float);
+                    }
                     return format!("{}°C", temp_str);
                 }
             }
@@ -1653,6 +1657,10 @@ impl SystemInfo {
                     if line.starts_with("edge:") || line.starts_with("junction:") {
                         if let Some(temp_part) = line.split_whitespace().nth(1) {
                             if let Some(temp) = temp_part.strip_prefix("+").and_then(|t| t.strip_suffix("°C")) {
+                                // Parse as float and format with one decimal place
+                                if let Ok(temp_float) = temp.parse::<f32>() {
+                                    return format!("{:.1}°C", temp_float);
+                                }
                                 return format!("{}°C", temp);
                             }
                         }
