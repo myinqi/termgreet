@@ -925,14 +925,26 @@ impl SystemInfo {
             // Check for NVIDIA drivers
             for line in &lines {
                 if line.starts_with("nvidia ") {
+                    // Check if this is the open source driver by looking for nvidia-open packages
+                    let is_open_source = Self::is_nvidia_open_source_driver();
+                    
                     // Try to get NVIDIA driver version
                     if let Some(version_output) = Self::run_command("nvidia-smi", &["--query-gpu=driver_version", "--format=csv,noheader,nounits"]) {
                         let version = version_output.trim();
                         if !version.is_empty() {
-                            return format!("NVIDIA (proprietary) {}", version);
+                            if is_open_source {
+                                return format!("NVIDIA (open source) {}", version);
+                            } else {
+                                return format!("NVIDIA (proprietary) {}", version);
+                            }
                         }
                     }
-                    return "NVIDIA (proprietary)".to_string();
+                    
+                    if is_open_source {
+                        return "NVIDIA (open source)".to_string();
+                    } else {
+                        return "NVIDIA (proprietary)".to_string();
+                    }
                 }
             }
             
@@ -2075,5 +2087,57 @@ impl SystemInfo {
         format!("[{}{}]", 
                 fill_char.repeat(filled_length as usize),
                 empty_char.repeat(empty_length as usize))
+    }
+    
+    fn is_nvidia_open_source_driver() -> bool {
+        // Check for NVIDIA open source driver packages
+        // This works for various distributions that have nvidia-open packages
+        
+        // Method 1: Check pacman (Arch/CachyOS/Vanilla Arch)
+        if let Some(output) = Self::run_command("pacman", &["-Q"]) {
+            // Search for any package containing "nvidia-open" in its name
+            for line in output.lines() {
+                if line.contains("nvidia-open") {
+                    return true;
+                }
+            }
+        }
+        
+        // Method 2: Check dpkg (Debian/Ubuntu)
+        if let Some(output) = Self::run_command("dpkg", &["-l"]) {
+            // Search for any package containing "nvidia-open" in its name
+            for line in output.lines() {
+                if line.contains("nvidia-open") {
+                    return true;
+                }
+            }
+        }
+        
+        // Method 3: Check rpm (Red Hat/Fedora)
+        if let Some(output) = Self::run_command("rpm", &["-qa"]) {
+            // Search for any package containing "nvidia-open" in its name
+            for line in output.lines() {
+                if line.contains("nvidia-open") {
+                    return true;
+                }
+            }
+        }
+        
+        // Method 4: Check for open source driver files
+        if std::path::Path::new("/usr/lib/modules").exists() {
+            if let Ok(entries) = std::fs::read_dir("/usr/lib/modules") {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let nvidia_open_path = path.join("kernel/drivers/gpu/drm/nvidia-drm-open.ko");
+                        if nvidia_open_path.exists() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
     }
 }
