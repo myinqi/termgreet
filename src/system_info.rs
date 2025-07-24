@@ -34,6 +34,7 @@ impl SystemInfo {
             data.insert("SHELL".to_string(), Self::get_shell());
             data.insert("TERMINAL".to_string(), Self::get_terminal());
         }
+        data.insert("TERMINAL_SHELL_COMBINED".to_string(), Self::get_terminal_shell_combined(config.modules.show_versions));
         data.insert("FONT".to_string(), Self::get_font_info());
         data.insert("USER".to_string(), Self::get_user_info());
         data.insert("HOSTNAME".to_string(), Self::get_hostname_info());
@@ -1701,6 +1702,34 @@ impl SystemInfo {
         } else {
             // Neither available
             "N/A".to_string()
+        }
+    }
+
+    fn get_terminal_shell_combined(show_versions: bool) -> String {
+        let terminal = if show_versions {
+            Self::get_terminal_with_version()
+        } else {
+            Self::get_terminal()
+        };
+        
+        let shell = if show_versions {
+            Self::get_shell_with_version()
+        } else {
+            Self::get_shell()
+        };
+        
+        // Only show if both are available and not "Unknown"
+        if terminal != "Unknown" && shell != "Unknown" {
+            format!("{} • {}", terminal, shell)
+        } else if terminal != "Unknown" {
+            // Show only terminal if shell is not available
+            terminal
+        } else if shell != "Unknown" {
+            // Show only shell if terminal is not available
+            shell
+        } else {
+            // Neither available
+            "Unknown".to_string()
         }
     }
 
