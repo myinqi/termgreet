@@ -360,6 +360,7 @@ impl Display {
                 print!("\x1b[{}B", remaining_lines);
             }
             print!("\x1b[1G"); // Move cursor to beginning of line
+            println!(); // Add blank line before MOTD
             
         } else {
             // Use block-based rendering for true side-by-side layout
@@ -409,6 +410,7 @@ impl Display {
             println!("{}", line_output);
         }
         
+        println!(); // Add blank line before MOTD
         Ok(())
     }
 
