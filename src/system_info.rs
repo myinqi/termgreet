@@ -44,6 +44,7 @@ impl SystemInfo {
         data.insert("CPU_TEMP".to_string(), Self::get_cpu_temperature());
         data.insert("GPU".to_string(), Self::get_gpu_info());
         data.insert("GPU_TEMP".to_string(), Self::get_gpu_temperature());
+        data.insert("TEMP_COMBINED".to_string(), Self::get_temp_combined());
         data.insert("GPU_DRIVER".to_string(), Self::get_gpu_driver_info());
         data.insert("MEMORY".to_string(), Self::get_memory_info(&sys));
         data.insert("DISK".to_string(), Self::get_disk_info(&sys));
@@ -1684,6 +1685,25 @@ impl SystemInfo {
         "N/A".to_string()
     }
 
+    fn get_temp_combined() -> String {
+        let cpu_temp = Self::get_cpu_temperature();
+        let gpu_temp = Self::get_gpu_temperature();
+        
+        // Only show if both temperatures are available
+        if cpu_temp != "N/A" && gpu_temp != "N/A" {
+            format!("CPU {} • GPU {}", cpu_temp, gpu_temp)
+        } else if cpu_temp != "N/A" {
+            // Show only CPU if GPU is not available
+            format!("CPU {}", cpu_temp)
+        } else if gpu_temp != "N/A" {
+            // Show only GPU if CPU is not available
+            format!("GPU {}", gpu_temp)
+        } else {
+            // Neither available
+            "N/A".to_string()
+        }
+    }
+
     fn get_non_nvidia_vram_usage() -> Option<(f64, f64)> {
         // Method 1: Try glxinfo for OpenGL memory info
         if let Some(output) = Self::run_command("glxinfo", &[]) {
@@ -1931,9 +1951,9 @@ impl SystemInfo {
                         let clean_device = device.strip_prefix("/dev/").unwrap_or(device);
                         
                         // Format the drive info in the new order:
-                        // Progress Bar, Percent, Device Name, Usage, Filesystem, Mount Point
+                        // Progress Bar, Percent (3 chars), Device Name, Usage (fixed width), Filesystem, Mount Point
                         let drive_info = format!(
-                            "{} {}% {} {}/{} [{}] {}",
+                            "{} {:>3}% {} {:>4}/{:<4} [{}] {}",
                             progress_bar,
                             usage_num,
                             clean_device,
@@ -2062,7 +2082,7 @@ impl SystemInfo {
                     let clean_device = device.strip_prefix("/dev/").unwrap_or(device);
                     
                     return Some(format!(
-                        "{} {}% {} {}/{} [{}] {}",
+                        "{} {:>3}% {} {:>4}/{:<4} [{}] {}",
                         progress_bar,
                         usage_num,
                         clean_device,
