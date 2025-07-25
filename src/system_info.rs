@@ -497,24 +497,77 @@ impl SystemInfo {
         for var in &term_vars {
             if let Ok(value) = env::var(var) {
                 if !value.is_empty() && value != "xterm-256color" {
+                    // Handle special cases where terminal reports with prefix
+                    if value == "xterm-kitty" {
+                        return "kitty".to_string();
+                    }
                     return value;
                 }
             }
         }
 
-        // Try to detect from parent process
-        if let Ok(ppid) = env::var("PPID") {
-            if let Ok(output) = Command::new("ps")
-                .args(&["-p", &ppid, "-o", "comm="])
-                .output()
-            {
-                if let Ok(comm) = String::from_utf8(output.stdout) {
-                    return comm.trim().to_string();
-                }
-            }
+        // Try to detect from parent process chain
+        // Some terminals like Alacritty don't set specific env vars
+        if let Some(terminal) = Self::detect_terminal_from_process_tree() {
+            return terminal;
         }
 
         "Unknown".to_string()
+    }
+    
+    fn detect_terminal_from_process_tree() -> Option<String> {
+        // Get current process ID
+        let current_pid = std::process::id();
+        
+        // Try to trace back through parent processes to find terminal
+        let mut pid = current_pid;
+        for _ in 0..10 { // Limit depth to avoid infinite loops
+            if let Ok(output) = Command::new("ps")
+                .args(&["-p", &pid.to_string(), "-o", "ppid=,comm="])
+                .output()
+            {
+                if let Ok(ps_output) = String::from_utf8(output.stdout) {
+                    let line = ps_output.trim();
+                    if line.is_empty() {
+                        break;
+                    }
+                    
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let parent_pid = parts[0];
+                        let comm = parts[1];
+                        
+                        // Check if this is a known terminal
+                        match comm {
+                            "alacritty" | "kitty" | "ghostty" | "wezterm" | 
+                            "gnome-terminal" | "konsole" | "xterm" | "urxvt" |
+                            "terminator" | "tilix" | "st" | "foot" => {
+                                return Some(comm.to_string());
+                            }
+                            _ => {}
+                        }
+                        
+                        // Continue with parent process
+                        if let Ok(ppid) = parent_pid.parse::<u32>() {
+                            if ppid == 1 || ppid == pid {
+                                break; // Reached init or circular reference
+                            }
+                            pid = ppid;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        None
     }
 
     fn get_terminal_with_version() -> String {
@@ -1678,40 +1731,47 @@ impl SystemInfo {
         use std::time::SystemTime;
         
         // Try different approaches to find OS installation date
+        // Prioritize more reliable sources first
         let install_paths = [
-            "/lost+found",           // Root filesystem creation (Linux)
-            "/var/log/installer",    // Ubuntu/Debian installer logs
-            "/var/log/anaconda",     // Red Hat/Fedora installer logs
-            "/etc",                  // Fallback: /etc directory
-            "/boot",                 // Boot directory
+            ("/lost+found", 10),      // Root filesystem creation (high priority)
+            ("/var/log/installer", 9), // Ubuntu/Debian installer logs
+            ("/var/log/anaconda", 9),  // Red Hat/Fedora installer logs
+            ("/etc", 5),              // Fallback: /etc directory (lower priority)
+            ("/boot", 1),             // Boot directory (lowest priority, often unreliable)
         ];
         
-        let mut oldest_time: Option<SystemTime> = None;
+        let mut candidates = Vec::new();
         
-        for path in &install_paths {
+        for (path, priority) in &install_paths {
             if let Ok(metadata) = fs::metadata(path) {
                 if let Ok(created) = metadata.created().or_else(|_| metadata.modified()) {
-                    match oldest_time {
-                        None => oldest_time = Some(created),
-                        Some(existing) => {
-                            if created < existing {
-                                oldest_time = Some(created);
-                            }
+                    if let Ok(duration) = SystemTime::now().duration_since(created) {
+                        let days = duration.as_secs() / (24 * 60 * 60);
+                        
+                        // Filter out unrealistic timestamps
+                        // Reject timestamps older than 10 years (3650 days) as likely corrupted
+                        // Reject timestamps from the future
+                        if days <= 3650 {
+                            candidates.push((days, *priority, *path));
                         }
                     }
                 }
             }
         }
         
-        // Calculate days since installation
-        if let Some(install_time) = oldest_time {
-            if let Ok(duration) = SystemTime::now().duration_since(install_time) {
-                let days = duration.as_secs() / (24 * 60 * 60);
-                return format!("{} days", days);
-            }
+        if candidates.is_empty() {
+            return "Unknown".to_string();
         }
         
-        "Unknown".to_string()
+        // Sort by priority (higher priority first), then by age (older first)
+        candidates.sort_by(|a, b| {
+            b.1.cmp(&a.1).then(a.0.cmp(&b.0))
+        });
+        
+        // Select the best candidate
+        let selected_days = candidates[0].0;
+        
+        format!("{} days", selected_days)
     }
 
     fn run_command(command: &str, args: &[&str]) -> Option<String> {
